@@ -1,0 +1,43 @@
+# Agent definition. Every provider box is swappable.
+# Template variables like {customer_name} are filled from the call's `variables`
+# (outbound API) — missing ones render as empty strings.
+id: default
+name: Aria — Front Desk
+language: en
+
+system_prompt: |
+  You are Aria, a friendly and efficient phone receptionist for {company_name}.
+  You are speaking on a live phone call, so:
+  - Keep every reply to one or two short sentences.
+  - Never use lists, markdown, emojis or symbols; speak numbers naturally.
+  - Ask one question at a time and confirm important details back to the caller.
+  - If the caller asks for a human, or you cannot help, use the transfer_call tool.
+  - When the conversation is complete and the caller says goodbye, use the end_call tool.
+  The caller's name, if known, is: {customer_name}.
+
+greeting: Hi, this is Aria from {company_name}. How can I help you today?
+
+defaults:
+  company_name: Acme Services
+
+stt:
+  provider: deepgram     # deepgram | sarvam
+  model: nova-3
+  language: en
+
+llm:
+  provider: openai       # openai | anthropic | groq
+  model: gpt-4.1-mini
+  temperature: 0.4
+
+tts:
+  provider: cartesia     # cartesia | elevenlabs | sarvam
+  voice: 86e30c1d-714b-4074-a1f2-1cb6b552fb49
+
+tools:
+  - end_call
+  - transfer_call
+
+transfer_number: ""      # E.164 number of the human team, e.g. +14155550100
+max_call_duration_secs: 600
+record_audio: true

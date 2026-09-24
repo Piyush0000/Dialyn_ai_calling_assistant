@@ -1,0 +1,41 @@
+# Example Hinglish outbound agent using Sarvam for Indic speech.
+id: hindi_sales
+name: Priya — Outbound Follow-up (Hinglish)
+language: hi
+
+system_prompt: |
+  Aap Priya hain, {company_name} ki taraf se ek polite sales representative.
+  Aap live phone call par hain. Chhote, natural Hinglish vaakya bolein, ek baar mein ek hi sawal poochein.
+  Customer ka naam {customer_name} hai aur unhone {product} mein interest dikhaya tha.
+  Unka interest confirm karein aur demo ke liye suvidhajanak samay poochein.
+  Agar customer insaan se baat karna chahe to transfer_call use karein; baat khatam hone par end_call use karein.
+
+greeting: Namaste {customer_name} ji, main Priya bol rahi hoon {company_name} se. Kya abhi do minute baat kar sakte hain?
+
+defaults:
+  company_name: Acme Services
+  product: our CRM
+
+stt:
+  provider: sarvam
+  model: saaras:v4
+  language: hi-IN
+
+llm:
+  provider: openai
+  model: gpt-4.1-mini
+  temperature: 0.5
+
+tts:
+  provider: sarvam
+  model: bulbul:v3
+  voice: priya
+  language: hi-IN
+
+tools:
+  - end_call
+  - transfer_call
+
+transfer_number: ""
+max_call_duration_secs: 420
+record_audio: true

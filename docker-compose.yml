@@ -1,0 +1,31 @@
+services:
+  agent:
+    build: ./agent
+    env_file: ./agent/.env
+    environment:
+      DATABASE_URL: postgresql+asyncpg://calls:calls@postgres:5432/calls
+    ports:
+      - "7860:7860"
+    volumes:
+      - agent-data:/srv/data
+      - ./agent/agents:/srv/agents:ro
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  postgres:
+    image: postgres:17
+    environment:
+      POSTGRES_USER: calls
+      POSTGRES_PASSWORD: calls
+      POSTGRES_DB: calls
+    volumes:
+      - pg-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U calls"]
+      interval: 5s
+      retries: 10
+
+volumes:
+  agent-data:
+  pg-data:

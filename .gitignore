@@ -1,0 +1,57 @@
+# ─── Secrets & local config ───────────────────────────────
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+credentials*.json
+service-account*.json
+
+# ─── Call data (recordings, transcripts, local DB) ────────
+agent/data/
+recordings/
+*.wav
+*.mp3
+*.db
+*.sqlite
+*.sqlite3
+
+# ─── Python ───────────────────────────────────────────────
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+.tools/
+build/
+dist/
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.pyright/
+.coverage
+htmlcov/
+
+# ─── Node (future dashboard) ──────────────────────────────
+node_modules/
+.next/
+out/
+npm-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# ─── Logs ─────────────────────────────────────────────────
+*.log
+logs/
+
+# ─── Editors & OS ─────────────────────────────────────────
+.vscode/*
+!.vscode/extensions.json
+.idea/
+*.swp
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# ─── Claude Code local settings ───────────────────────────
+.claude/settings.local.json
