@@ -20,8 +20,10 @@ STREAM_TOKEN_TTL_SECS = 120
 # token inside the TwiML <Parameter> list and verify it on the first "start" message.
 
 
-def sign_stream_token(secret: str, call_id: str, now: float | None = None) -> str:
-    expires = int((now or time.time()) + STREAM_TOKEN_TTL_SECS)
+def sign_stream_token(
+    secret: str, call_id: str, now: float | None = None, ttl_secs: int = STREAM_TOKEN_TTL_SECS
+) -> str:
+    expires = int((now or time.time()) + ttl_secs)
     mac = hmac.new(secret.encode(), f"{call_id}.{expires}".encode(), hashlib.sha256).hexdigest()
     return f"{expires}.{mac}"
 

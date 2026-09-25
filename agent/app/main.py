@@ -1,26 +1,31 @@
-"""HTTP / WebSocket entry points for the voice agent.
+"""HTTP / WebSocket entry points.
 
-Routes
+Merchant API: see app/api_v1.py (/v1/*, /admin/*).
+
+Telephony
   POST /telephony/twilio/incoming   Twilio "A call comes in" webhook -> TwiML media stream
-  POST /telephony/twilio/status     Twilio status callbacks
+  POST /telephony/twilio/status     Twilio status callbacks (drives retries)
   WS   /telephony/twilio/stream     Twilio bidirectional media stream (runs the pipeline)
-  POST /api/calls                   Place an outbound call            (X-API-Key)
-  GET  /api/calls[/{id}]            Call records + transcripts        (X-API-Key)
-  GET  /api/agents                  Configured agents                 (X-API-Key)
-  POST /start                       Browser test UI: start a WebRTC session
-  POST|PATCH /sessions/{id}/api/offer   WebRTC signalling for that session
-  POST /api/offer, PATCH /api/offer Browser WebRTC test calls (direct)
-  GET  /client/                     Prebuilt browser test UI
+
+Internal / testing (X-API-Key = platform admin key)
+  POST /api/calls, GET /api/calls[/{id}], GET /api/agents   YAML-agent calls
+
+Browser
+  GET  /test/{call_id}?token=       Browser test page for a merchant web call
+  GET  /test/{call_id}/live?token=  Live status + transcript for that page
+  POST /start, /sessions/{id}/api/offer   Prebuilt UI (/client/) signalling
+  POST|PATCH /api/offer             WebRTC signalling
 """
 
 import asyncio
 import secrets
 import uuid
 from collections import OrderedDict
-from contextlib import asynccontextmanager
+from contextlib import asynccontextmanager, suppress
+from pathlib import Path
 
 from fastapi import Depends, FastAPI, Header, HTTPException, Request, WebSocket
-from fastapi.responses import RedirectResponse, Response
+from fastapi.responses import HTMLResponse, RedirectResponse, Response
 from loguru import logger
 from pipecat.runner.utils import parse_telephony_websocket
 from pipecat.serializers.twilio import TwilioFrameSerializer
@@ -35,21 +40,14 @@ from pipecat.transports.smallwebrtc.transport import SmallWebRTCTransport
 from pipecat.transports.websocket.fastapi import FastAPIWebsocketParams, FastAPIWebsocketTransport
 from pydantic import BaseModel, Field
 
-from app.agent_config import AgentNotFound, list_agents, load_agent
-from app.bot import CallSession, Deps, run_call
-from app.config import get_settings
-from app.db import CallStore
+from app.agent_config import AgentConfig, AgentNotFound, list_agents, load_agent
+from app.api_v1 import router as v1_router
+from app.bot import CallSession, run_call
+from app.context import deps, resolve_agent, service, settings
 from app.providers import missing_keys
-from app.telephony import (
-    Twilio,
-    reject_twiml,
-    sign_stream_token,
-    stream_twiml,
-    verify_stream_token,
-)
+from app.telephony import reject_twiml, sign_stream_token, stream_twiml, verify_stream_token
 
-settings = get_settings()
-deps = Deps(settings=settings, store=CallStore(settings.database_url), twilio=Twilio(settings))
+STATIC_DIR = Path(__file__).parent / "static"
 webrtc_handler = SmallWebRTCRequestHandler()
 # Strong references so in-flight call tasks are not garbage-collected.
 _call_tasks: set[asyncio.Task] = set()
@@ -61,16 +59,21 @@ _MAX_WEB_SESSIONS = 1000
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     if settings.database_url.startswith("sqlite"):
-        from pathlib import Path
-
         Path(settings.database_url.split("///", 1)[1]).parent.mkdir(parents=True, exist_ok=True)
     await deps.store.init()
+    scheduler = asyncio.create_task(service.run_forever()) if settings.scheduler_enabled else None
     yield
+    if scheduler:
+        scheduler.cancel()
+        with suppress(asyncio.CancelledError):
+            await scheduler
+    await service.close()
     await webrtc_handler.close()
     await deps.store.close()
 
 
-app = FastAPI(title="AI Calling Agent", lifespan=lifespan)
+app = FastAPI(title="Dialyn — AI Calling API", lifespan=lifespan)
+app.include_router(v1_router)
 
 
 def require_api_key(x_api_key: str = Header(default="")) -> None:
@@ -78,11 +81,19 @@ def require_api_key(x_api_key: str = Header(default="")) -> None:
         raise HTTPException(status_code=401, detail="Invalid API key")
 
 
-def _agent_or_404(agent_id: str):
+def _agent_or_404(agent_id: str) -> AgentConfig:
     try:
         return load_agent(settings.agents_dir, agent_id)
     except AgentNotFound:
         raise HTTPException(status_code=404, detail=f"Unknown agent '{agent_id}'") from None
+
+
+def _require_keys(agent: AgentConfig) -> None:
+    if missing := missing_keys(agent, settings):
+        raise HTTPException(
+            status_code=400,
+            detail=f"Agent '{agent.id}' needs these keys in agent/.env: {', '.join(missing)}",
+        )
 
 
 async def _twilio_form(request: Request) -> dict[str, str]:
@@ -97,17 +108,22 @@ async def _twilio_form(request: Request) -> dict[str, str]:
     return form
 
 
-def _stream_twiml_for(call_id: str, agent_id: str, from_number: str, to_number: str) -> str:
+def _stream_twiml_for(call_id: str, from_number: str, to_number: str) -> str:
     return stream_twiml(
         settings.twilio_stream_url,
         {
             "call_id": call_id,
-            "agent_id": agent_id,
             "token": sign_stream_token(settings.stream_signing_secret, call_id),
             "from_number": from_number,
             "to_number": to_number,
         },
     )
+
+
+def _spawn(coro) -> None:
+    task = asyncio.create_task(coro)
+    _call_tasks.add(task)
+    task.add_done_callback(_call_tasks.discard)
 
 
 # ------------------------------------------------------------------ Twilio
@@ -133,14 +149,12 @@ async def twilio_incoming(request: Request, agent: str | None = None):
         from_number=form.get("From"),
         to_number=form.get("To"),
     )
-    twiml = _stream_twiml_for(call.id, agent_id, form.get("From", ""), form.get("To", ""))
+    twiml = _stream_twiml_for(call.id, form.get("From", ""), form.get("To", ""))
     return Response(twiml, media_type="application/xml")
 
 
-_TWILIO_STATUS = {
-    "queued": "queued",
-    "initiated": "queued",
-    "ringing": "ringing",
+# Twilio statuses that mean this dial attempt never reached a conversation.
+_FAILED_ATTEMPT = {
     "busy": "busy",
     "no-answer": "no_answer",
     "failed": "failed",
@@ -154,10 +168,18 @@ async def twilio_status(request: Request):
     call = await deps.store.get_by_provider_id(form.get("CallSid", ""))
     if call is None:
         return {"ok": True}
-    # "answered"/"in-progress"/"completed" are owned by the pipeline itself.
-    status = _TWILIO_STATUS.get(form.get("CallStatus", ""))
-    if status and call.status in ("queued", "ringing"):
-        await deps.store.update(call.id, status=status)
+    twilio_status = form.get("CallStatus", "")
+    # "in-progress"/"completed" after answer are owned by the pipeline itself.
+    if twilio_status == "ringing" and call.status in ("queued", "dialing"):
+        await deps.store.update(call.id, status="ringing", log="ringing")
+    elif reason := _FAILED_ATTEMPT.get(twilio_status):
+        if call.tenant_id:
+            await service.attempt_failed(call.id, reason)
+        elif call.status in ("queued", "ringing"):
+            await deps.store.update(call.id, status=reason, log=reason)
+    elif twilio_status == "completed" and call.status in ("dialing", "ringing"):
+        # Ended before our media stream connected (e.g. picked up and hung up at once).
+        await service.attempt_failed(call.id, "ended_before_connect")
     return {"ok": True}
 
 
@@ -180,7 +202,7 @@ async def twilio_stream(websocket: WebSocket):
         await websocket.close(code=4004)
         return
 
-    agent = load_agent(settings.agents_dir, call.agent_id).render(call.variables)
+    agent = await resolve_agent(call)
     transport = FastAPIWebsocketTransport(
         websocket=websocket,
         params=FastAPIWebsocketParams(
@@ -199,7 +221,7 @@ async def twilio_stream(websocket: WebSocket):
     await run_call(transport, session, deps, sample_rate=8000)
 
 
-# ------------------------------------------------------------------ REST API
+# ------------------------------------------------ internal YAML-agent API
 
 
 class OutboundCallRequest(BaseModel):
@@ -226,7 +248,7 @@ async def create_call(body: OutboundCallRequest):
         sid = await deps.twilio.place_call(
             to=body.to,
             from_=from_number,
-            twiml=_stream_twiml_for(call.id, agent_id, from_number, body.to),
+            twiml=_stream_twiml_for(call.id, from_number, body.to),
             status_callback=f"{settings.public_base_url}/telephony/twilio/status",
         )
     except Exception as e:
@@ -239,7 +261,7 @@ async def create_call(body: OutboundCallRequest):
 
 @app.get("/api/calls", dependencies=[Depends(require_api_key)])
 async def get_calls(limit: int = 50, offset: int = 0):
-    return [c.to_dict() for c in await deps.store.list(min(limit, 200), offset)]
+    return [c.to_dict() for c in await deps.store.list_calls(min(limit, 200), offset)]
 
 
 @app.get("/api/calls/{call_id}", dependencies=[Depends(require_api_key)])
@@ -261,6 +283,36 @@ async def health():
 
 
 # ------------------------------------------------------------ Browser (WebRTC)
+
+
+async def _web_test_call(call_id: str, token: str):
+    call = await deps.store.get(call_id)
+    if call is None or not verify_stream_token(settings.stream_signing_secret, call_id, token):
+        raise HTTPException(status_code=403, detail="Invalid or expired test link")
+    return call
+
+
+@app.get("/test/{call_id}", include_in_schema=False)
+async def test_page(call_id: str, token: str):
+    await _web_test_call(call_id, token)
+    return HTMLResponse((STATIC_DIR / "test_call.html").read_text(encoding="utf-8"))
+
+
+@app.get("/test/{call_id}/live", include_in_schema=False)
+async def test_live(call_id: str, token: str):
+    call = await _web_test_call(call_id, token)
+    return {
+        "event": call.event_type,
+        "customer_name": call.customer_name,
+        "language": call.language,
+        "order": call.payload.get("order", {}),
+        "status": call.status,
+        "outcome": call.outcome,
+        "outcome_data": call.outcome_data,
+        "transcript": call.transcript,
+        "timeline": call.timeline,
+        "duration_secs": call.duration_secs,
+    }
 
 
 @app.post("/start")
@@ -308,27 +360,34 @@ async def session_other(session_id: str, path: str):
 @app.post("/api/offer")
 async def webrtc_offer(request: SmallWebRTCRequest):
     request_data = request.request_data or {}
-    agent_id = request_data.get("agent_id") or settings.default_agent_id
-    agent = _agent_or_404(agent_id)
-    if missing := missing_keys(agent, settings):
-        raise HTTPException(
-            status_code=400,
-            detail=f"Agent '{agent_id}' needs these keys in agent/.env: {', '.join(missing)}",
-        )
-    variables = {k: str(v) for k, v in (request_data.get("variables") or {}).items()}
+
+    if request_data.get("call_id"):
+        # Merchant web test call created via POST /v1/calls with channel="web".
+        call = await _web_test_call(request_data["call_id"], request_data.get("token", ""))
+        if call.status != "waiting_for_browser":
+            raise HTTPException(status_code=409, detail=f"This test call is already {call.status}")
+        agent = await resolve_agent(call)
+        _require_keys(agent)
+        call_id = call.id
+    else:
+        agent_id = request_data.get("agent_id") or settings.default_agent_id
+        variables = {k: str(v) for k, v in (request_data.get("variables") or {}).items()}
+        agent = _agent_or_404(agent_id).render(variables)
+        _require_keys(agent)
+        call_id = None
 
     async def on_connection(connection: SmallWebRTCConnection):
-        call = await deps.store.create(
-            agent_id=agent_id, direction="web", provider="webrtc", variables=variables
-        )
+        nonlocal call_id
+        if call_id is None:
+            call = await deps.store.create(
+                agent_id=agent.id, direction="web", channel="web", provider="webrtc"
+            )
+            call_id = call.id
         transport = SmallWebRTCTransport(
             webrtc_connection=connection,
             params=TransportParams(audio_in_enabled=True, audio_out_enabled=True),
         )
-        session = CallSession(call_id=call.id, agent=agent.render(variables))
-        task = asyncio.create_task(run_call(transport, session, deps))
-        _call_tasks.add(task)
-        task.add_done_callback(_call_tasks.discard)
+        _spawn(run_call(transport, CallSession(call_id=call_id, agent=agent), deps))
 
     return await webrtc_handler.handle_web_request(
         request=request, webrtc_connection_callback=on_connection

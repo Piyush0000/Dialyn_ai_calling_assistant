@@ -3,6 +3,7 @@
 import asyncio
 import io
 import wave
+from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from typing import Any
@@ -44,6 +45,8 @@ class Deps:
     settings: Settings
     store: CallStore
     twilio: Twilio
+    # Runs after every call is persisted (webhooks, retries). Receives the call id.
+    on_call_finished: Callable[[str], Awaitable[None]] | None = None
 
 
 @dataclass
@@ -55,6 +58,10 @@ class CallSession:
     end_reason: str | None = None
     transferred: bool = False
     recording_path: str | None = None
+    outcome: str | None = None
+    outcome_data: dict[str, Any] = field(default_factory=dict)
+    # Set once the outcome is recorded: hang up after the agent's next (goodbye) reply.
+    end_after_reply: bool = False
 
     @property
     def is_phone_call(self) -> bool:
@@ -93,6 +100,53 @@ def _build_tools(session: CallSession, deps: Deps, worker_ref: list[PipelineWork
             session.provider_call_id,
             transfer_twiml(number, "Please hold while I connect you."),
         )
+
+    async def record_outcome(params: FunctionCallParams):
+        outcome = str(params.arguments.get("outcome", ""))
+        if outcome not in session.agent.outcomes:
+            await params.result_callback(
+                {"status": "error", "detail": f"outcome must be one of {session.agent.outcomes}"}
+            )
+            return
+        session.outcome = outcome
+        session.outcome_data = {
+            k: v for k, v in params.arguments.items() if k != "outcome" and v not in (None, "")
+        }
+        logger.info(f"[{session.call_id}] outcome: {outcome} {session.outcome_data}")
+        await deps.store.update(
+            session.call_id,
+            outcome=outcome,
+            outcome_data=session.outcome_data,
+            log=f"outcome: {outcome}",
+        )
+        session.end_after_reply = True
+        await params.result_callback(
+            {
+                "status": "recorded",
+                "next": "Say one short thank-you and goodbye sentence. The call ends after it.",
+            }
+        )
+
+    if "record_outcome" in session.agent.tools and session.agent.outcomes:
+        schemas.append(
+            FunctionSchema(
+                name="record_outcome",
+                description="Record the result of this call as soon as it is clear.",
+                properties={
+                    "outcome": {"type": "string", "enum": session.agent.outcomes},
+                    "notes": {
+                        "type": "string",
+                        "description": "Details: requested changes, new address, reason, etc.",
+                    },
+                    "preferred_time": {
+                        "type": "string",
+                        "description": "When the customer wants a callback or delivery, if any.",
+                    },
+                },
+                required=["outcome"],
+            )
+        )
+        handlers["record_outcome"] = record_outcome
 
     if "end_call" in session.agent.tools:
         schemas.append(
@@ -147,7 +201,9 @@ async def run_call(
     """Run the conversation until either side hangs up, then persist the outcome."""
     agent = session.agent
     started_at = datetime.now(UTC)
-    await deps.store.update(session.call_id, status="in_progress", started_at=started_at)
+    await deps.store.update(
+        session.call_id, status="in_progress", started_at=started_at, log="answered"
+    )
 
     try:
         stt = build_stt(agent, deps.settings)
@@ -160,7 +216,10 @@ async def run_call(
             status="failed",
             end_reason="provider_error",
             ended_at=datetime.now(UTC),
+            log=f"provider_error: {e}"[:200],
         )
+        if deps.on_call_finished:
+            await deps.on_call_finished(session.call_id)
         raise
 
     worker_ref: list[PipelineWorker] = []
@@ -238,12 +297,19 @@ async def run_call(
         session.transcript.append(
             {"role": "user", "text": message.content, "ts": message.timestamp}
         )
+        await deps.store.update(session.call_id, transcript=list(session.transcript))
 
     @assistant_aggregator.event_handler("on_assistant_turn_stopped")
     async def on_assistant_turn_stopped(aggregator, message: AssistantTurnStoppedMessage):
         session.transcript.append(
             {"role": "assistant", "text": message.content, "ts": message.timestamp}
         )
+        await deps.store.update(session.call_id, transcript=list(session.transcript))
+        if session.end_after_reply and message.content.strip():
+            session.end_after_reply = False
+            session.end_reason = session.end_reason or "completed"
+            # Queued behind the goodbye audio, so it is not cut off.
+            await worker.queue_frames([EndWorkerFrame(reason="outcome_recorded")])
 
     if audio_buffer:
 
@@ -271,7 +337,15 @@ async def run_call(
             end_reason=session.end_reason or "completed",
             transcript=session.transcript,
             recording_path=session.recording_path,
+            outcome=session.outcome,
+            outcome_data=session.outcome_data,
             ended_at=ended_at,
             duration_secs=(ended_at - started_at).total_seconds(),
+            log=f"ended: {session.end_reason or 'completed'}",
         )
-        logger.info(f"[{session.call_id}] finished: {session.end_reason}")
+        logger.info(f"[{session.call_id}] finished: {session.end_reason} outcome={session.outcome}")
+        if deps.on_call_finished:
+            try:
+                await deps.on_call_finished(session.call_id)
+            except Exception:
+                logger.exception(f"[{session.call_id}] post-call hook failed")

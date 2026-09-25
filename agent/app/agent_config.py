@@ -36,7 +36,11 @@ class AgentConfig(BaseModel):
     stt: STTConfig = Field(default_factory=STTConfig)
     llm: LLMConfig = Field(default_factory=LLMConfig)
     tts: TTSConfig = Field(default_factory=TTSConfig)
-    tools: list[Literal["end_call", "transfer_call"]] = Field(default_factory=list)
+    tools: list[Literal["end_call", "transfer_call", "record_outcome"]] = Field(
+        default_factory=list
+    )
+    # Allowed values for the record_outcome tool.
+    outcomes: list[str] = Field(default_factory=list)
     transfer_number: str = ""
     max_call_duration_secs: int = 600
     record_audio: bool = True

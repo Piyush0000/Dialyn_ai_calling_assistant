@@ -1,0 +1,200 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Test call · Dialyn</title>
+<style>
+  :root {
+    --bg: #f6f6f3; --card: #ffffff; --ink: #1c1c1a; --muted: #6b6b66; --line: #e4e3dd;
+    --accent: #1f6f5c; --accent-ink: #ffffff; --danger: #b3362c; --chip: #eef3f1;
+    --user: #eef1f8; --agent: #f1f6f3;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #151514; --card: #1e1e1c; --ink: #ecece8; --muted: #9d9d96; --line: #2f2f2c;
+      --accent: #4fb899; --accent-ink: #0d1f1a; --danger: #e0685e; --chip: #1f2c28;
+      --user: #22252e; --agent: #1d2724;
+    }
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--ink);
+    font: 15px/1.5 system-ui, -apple-system, "Segoe UI", sans-serif; }
+  main { max-width: 980px; margin: 0 auto; padding: 32px 16px 48px; }
+  header { display: flex; align-items: baseline; justify-content: space-between; gap: 12px;
+    flex-wrap: wrap; margin-bottom: 20px; }
+  h1 { font-size: 22px; margin: 0; letter-spacing: -0.01em; }
+  .muted { color: var(--muted); }
+  .grid { display: grid; grid-template-columns: 320px 1fr; gap: 16px; }
+  @media (max-width: 760px) { .grid { grid-template-columns: 1fr; } }
+  .card { background: var(--card); border: 1px solid var(--line); border-radius: 14px; padding: 18px; }
+  .card h2 { font-size: 13px; text-transform: uppercase; letter-spacing: .06em; color: var(--muted);
+    margin: 0 0 12px; font-weight: 600; }
+  dl { margin: 0; display: grid; grid-template-columns: auto 1fr; gap: 6px 12px; }
+  dt { color: var(--muted); } dd { margin: 0; overflow-wrap: anywhere; }
+  .chip { display: inline-block; background: var(--chip); color: var(--accent); border-radius: 999px;
+    padding: 2px 10px; font-size: 13px; font-weight: 600; }
+  button { font: inherit; font-weight: 600; border: 0; border-radius: 999px; padding: 12px 22px;
+    cursor: pointer; background: var(--accent); color: var(--accent-ink); width: 100%; margin-top: 16px; }
+  button.hang { background: var(--danger); color: #fff; }
+  button:disabled { opacity: .5; cursor: default; }
+  .status { margin-top: 10px; font-size: 14px; min-height: 21px; }
+  .transcript { display: flex; flex-direction: column; gap: 8px; min-height: 260px; max-height: 460px;
+    overflow-y: auto; }
+  .msg { padding: 9px 12px; border-radius: 12px; max-width: 85%; }
+  .msg.user { background: var(--user); align-self: flex-end; }
+  .msg.assistant { background: var(--agent); align-self: flex-start; }
+  .msg small { display: block; color: var(--muted); font-size: 12px; margin-bottom: 2px; }
+  .empty { color: var(--muted); margin: auto; text-align: center; }
+  .outcome { margin-top: 16px; }
+  .timeline { list-style: none; padding: 0; margin: 0; font-size: 13px; }
+  .timeline li { padding: 4px 0; border-bottom: 1px dashed var(--line); }
+  .timeline time { color: var(--muted); margin-right: 8px; font-variant-numeric: tabular-nums; }
+  .stack { display: grid; gap: 16px; }
+</style>
+</head>
+<body>
+<main>
+  <header>
+    <h1 id="title">Test call</h1>
+    <span class="muted">Use headphones so the agent doesn't hear itself.</span>
+  </header>
+  <div class="grid">
+    <div class="stack">
+      <section class="card">
+        <h2>Scenario</h2>
+        <dl id="facts"></dl>
+        <button id="call">Start call</button>
+        <div class="status muted" id="status"></div>
+      </section>
+      <section class="card" id="outcomeCard" hidden>
+        <h2>Outcome</h2>
+        <div id="outcome"></div>
+      </section>
+    </div>
+    <div class="stack">
+      <section class="card">
+        <h2>Live transcript</h2>
+        <div class="transcript" id="transcript"><p class="empty">The conversation will appear here.</p></div>
+      </section>
+      <section class="card">
+        <h2>Timeline</h2>
+        <ul class="timeline" id="timeline"></ul>
+      </section>
+    </div>
+  </div>
+  <audio id="remote" autoplay></audio>
+</main>
+<script>
+const callId = location.pathname.split("/")[2];
+const token = new URLSearchParams(location.search).get("token");
+const liveUrl = `/test/${callId}/live?token=${encodeURIComponent(token)}`;
+const $ = (id) => document.getElementById(id);
+const EVENT_TITLES = {
+  order_confirmation: "Order confirmation", cod_verification: "COD verification",
+  payment_success: "Payment successful", payment_failed: "Payment failed",
+  order_shipped: "Order shipped", out_for_delivery: "Out for delivery",
+};
+let pc = null, stream = null, poll = null;
+
+function text(el, value) { el.textContent = value ?? ""; return el; }
+function el(tag, cls, value) { const e = document.createElement(tag); if (cls) e.className = cls; return text(e, value); }
+
+function renderFacts(d) {
+  $("title").textContent = EVENT_TITLES[d.event] || "Test call";
+  const o = d.order || {};
+  const rows = [
+    ["Customer", d.customer_name], ["Language", d.language === "hi" ? "Hinglish" : "English"],
+    ["Order", o.id], ["Amount", o.amount != null ? `${o.amount} ${o.currency || ""}` : null],
+    ["Items", (o.items || []).map(i => `${i.quantity || 1} × ${i.name}`).join(", ")],
+    ["Payment", o.payment_method], ["Address", o.address], ["Delivery", o.expected_delivery],
+  ];
+  const dl = $("facts"); dl.replaceChildren();
+  for (const [k, v] of rows) if (v) { dl.append(el("dt", null, k), el("dd", null, v)); }
+}
+
+function render(d) {
+  const box = $("transcript");
+  if (d.transcript && d.transcript.length) {
+    box.replaceChildren(...d.transcript.map(m => {
+      const div = el("div", `msg ${m.role}`);
+      div.append(el("small", null, m.role === "user" ? "Customer" : "Agent"), document.createTextNode(m.text));
+      return div;
+    }));
+    box.scrollTop = box.scrollHeight;
+  }
+  $("timeline").replaceChildren(...(d.timeline || []).map(t => {
+    const li = el("li"); li.append(el("time", null, new Date(t.at).toLocaleTimeString()), document.createTextNode(t.event));
+    return li;
+  }));
+  if (d.outcome) {
+    $("outcomeCard").hidden = false;
+    const out = $("outcome"); out.replaceChildren(el("span", "chip", d.outcome.replaceAll("_", " ")));
+    for (const [k, v] of Object.entries(d.outcome_data || {})) {
+      const p = el("p", null); p.append(el("strong", null, `${k.replaceAll("_", " ")}: `), document.createTextNode(v)); out.append(p);
+    }
+  }
+  if (["completed", "transferred", "failed"].includes(d.status)) {
+    text($("status"), `Call ${d.status}${d.duration_secs ? ` · ${Math.round(d.duration_secs)}s` : ""}.`);
+    const b = $("call"); b.disabled = true; b.className = ""; b.textContent = "Call finished";
+    stopPolling();
+  }
+}
+
+async function refresh() {
+  const r = await fetch(liveUrl);
+  if (!r.ok) { text($("status"), "This test link is invalid or has expired."); $("call").disabled = true; return null; }
+  const d = await r.json(); render(d); return d;
+}
+function startPolling() { stopPolling(); poll = setInterval(refresh, 1000); }
+function stopPolling() { if (poll) clearInterval(poll); poll = null; }
+
+async function start() {
+  const b = $("call"); b.disabled = true; text($("status"), "Asking for microphone…");
+  try {
+    stream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true } });
+  } catch { text($("status"), "Microphone permission is needed for the call."); b.disabled = false; return; }
+
+  text($("status"), "Connecting…");
+  pc = new RTCPeerConnection({ iceServers: [{ urls: "stun:stun.l.google.com:19302" }] });
+  pc.createDataChannel("chat");
+  pc.addTransceiver(stream.getAudioTracks()[0], { direction: "sendrecv", streams: [stream] });
+  pc.addTransceiver("video", { direction: "recvonly" });
+  pc.ontrack = (e) => { if (e.track.kind === "audio") $("remote").srcObject = e.streams[0] || new MediaStream([e.track]); };
+  pc.onconnectionstatechange = () => {
+    if (pc.connectionState === "connected") { text($("status"), "Connected: the agent will speak first."); b.disabled = false; b.className = "hang"; b.textContent = "Hang up"; }
+    if (["failed", "closed"].includes(pc.connectionState)) text($("status"), "Call ended.");
+  };
+
+  await pc.setLocalDescription(await pc.createOffer());
+  await new Promise((resolve) => {
+    if (pc.iceGatheringState === "complete") return resolve();
+    const done = () => pc.iceGatheringState === "complete" && resolve();
+    pc.addEventListener("icegatheringstatechange", done); setTimeout(resolve, 2000);
+  });
+  const r = await fetch("/api/offer", {
+    method: "POST", headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ sdp: pc.localDescription.sdp, type: pc.localDescription.type, request_data: { call_id: callId, token } }),
+  });
+  if (!r.ok) {
+    const err = await r.json().catch(() => ({}));
+    text($("status"), err.detail || `Could not start the call (${r.status}).`);
+    hangUp(false); return;
+  }
+  await pc.setRemoteDescription(await r.json());
+  startPolling();
+}
+
+function hangUp(final = true) {
+  if (pc) pc.close(); pc = null;
+  if (stream) stream.getTracks().forEach(t => t.stop()); stream = null;
+  const b = $("call");
+  if (final) { b.disabled = true; text($("status"), "Hanging up…"); setTimeout(refresh, 1500); }
+  else { b.disabled = false; b.className = ""; b.textContent = "Start call"; }
+}
+
+$("call").addEventListener("click", () => (pc ? hangUp() : start()));
+refresh().then(d => { if (d) { renderFacts(d); if (d.status !== "waiting_for_browser" && d.status !== "completed") startPolling(); } });
+</script>
+</body>
+</html>

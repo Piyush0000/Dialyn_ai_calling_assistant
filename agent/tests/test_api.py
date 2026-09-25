@@ -43,7 +43,6 @@ def test_inbound_webhook_returns_signed_stream(client):
     stream = ElementTree.fromstring(res.text).find("./Connect/Stream")
     assert stream.get("url") == "wss://voice.example.com/telephony/twilio/stream"
     params = {p.get("name"): p.get("value") for p in stream.iter("Parameter")}
-    assert params["agent_id"] == "default"
     assert verify_stream_token("test-secret", params["call_id"], params["token"])
 
     call = client.get(f"/api/calls/{params['call_id']}", headers=AUTH).json()

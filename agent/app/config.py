@@ -20,6 +20,8 @@ class Settings(BaseSettings):
     agents_dir: Path = BASE_DIR / "agents"
     recordings_dir: Path = BASE_DIR / "data" / "recordings"
     validate_twilio_signature: bool = True
+    # Background dialer for merchant calls; tests turn it off and call tick() directly.
+    scheduler_enabled: bool = True
 
     twilio_account_sid: str = ""
     twilio_auth_token: str = ""
