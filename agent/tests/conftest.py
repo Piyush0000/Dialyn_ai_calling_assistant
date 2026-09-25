@@ -9,6 +9,7 @@ sys.path.insert(0, str(ROOT))
 os.environ.update(
     {
         "API_KEY": "test-key",
+        "DEFAULT_AGENT_ID": "default",
         "STREAM_SIGNING_SECRET": "test-secret",
         "PUBLIC_HOST": "voice.example.com",
         "DATABASE_URL": "sqlite+aiosqlite:///:memory:",

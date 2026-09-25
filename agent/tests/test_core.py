@@ -73,7 +73,7 @@ def test_every_provider_combination_builds(stt, llm, tts):
     if tts != "cartesia":
         agent.tts.voice = agent.tts.model = None
     if llm != "openai":
-        agent.llm.model = {"anthropic": "claude-haiku-4-5", "groq": "llama-3.3-70b-versatile"}[llm]
+        agent.llm.model = {"anthropic": "claude-haiku-4-5", "groq": "qwen/qwen3.8-27b"}[llm]
     assert build_stt(agent, settings)
     assert build_llm(agent, settings)
     assert build_tts(agent, settings)

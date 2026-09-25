@@ -29,7 +29,7 @@ stt:
 
 llm:
   provider: groq
-  model: llama-3.3-70b-versatile
+  model: qwen/qwen3.8-27b       # fastest on Groq (~0.15 s to first word); alt: openai/gpt-oss-120b
   temperature: 0.4
 
 tts:

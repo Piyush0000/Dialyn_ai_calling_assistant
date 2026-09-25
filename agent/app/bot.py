@@ -149,9 +149,19 @@ async def run_call(
     started_at = datetime.now(UTC)
     await deps.store.update(session.call_id, status="in_progress", started_at=started_at)
 
-    stt = build_stt(agent, deps.settings)
-    llm = build_llm(agent, deps.settings)
-    tts = build_tts(agent, deps.settings)
+    try:
+        stt = build_stt(agent, deps.settings)
+        llm = build_llm(agent, deps.settings)
+        tts = build_tts(agent, deps.settings)
+    except Exception as e:
+        logger.error(f"[{session.call_id}] could not start providers: {e}")
+        await deps.store.update(
+            session.call_id,
+            status="failed",
+            end_reason="provider_error",
+            ended_at=datetime.now(UTC),
+        )
+        raise
 
     worker_ref: list[PipelineWorker] = []
     tool_schemas, tool_handlers = _build_tools(session, deps, worker_ref)

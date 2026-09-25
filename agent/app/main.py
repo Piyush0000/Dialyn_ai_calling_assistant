@@ -7,12 +7,16 @@ Routes
   POST /api/calls                   Place an outbound call            (X-API-Key)
   GET  /api/calls[/{id}]            Call records + transcripts        (X-API-Key)
   GET  /api/agents                  Configured agents                 (X-API-Key)
-  POST /api/offer, PATCH /api/offer Browser WebRTC test calls
+  POST /start                       Browser test UI: start a WebRTC session
+  POST|PATCH /sessions/{id}/api/offer   WebRTC signalling for that session
+  POST /api/offer, PATCH /api/offer Browser WebRTC test calls (direct)
   GET  /client/                     Prebuilt browser test UI
 """
 
 import asyncio
 import secrets
+import uuid
+from collections import OrderedDict
 from contextlib import asynccontextmanager
 
 from fastapi import Depends, FastAPI, Header, HTTPException, Request, WebSocket
@@ -35,6 +39,7 @@ from app.agent_config import AgentNotFound, list_agents, load_agent
 from app.bot import CallSession, Deps, run_call
 from app.config import get_settings
 from app.db import CallStore
+from app.providers import missing_keys
 from app.telephony import (
     Twilio,
     reject_twiml,
@@ -48,6 +53,9 @@ deps = Deps(settings=settings, store=CallStore(settings.database_url), twilio=Tw
 webrtc_handler = SmallWebRTCRequestHandler()
 # Strong references so in-flight call tasks are not garbage-collected.
 _call_tasks: set[asyncio.Task] = set()
+# Browser sessions created by POST /start -> request body (e.g. {"agent_id": ...}).
+_web_sessions: OrderedDict[str, dict] = OrderedDict()
+_MAX_WEB_SESSIONS = 1000
 
 
 @asynccontextmanager
@@ -255,11 +263,58 @@ async def health():
 # ------------------------------------------------------------ Browser (WebRTC)
 
 
+@app.post("/start")
+async def start_web_session(request: Request):
+    """Called by the prebuilt test UI before it sends its WebRTC offer."""
+    try:
+        body = (await request.json()).get("body") or {}
+    except Exception:
+        body = {}
+    session_id = str(uuid.uuid4())
+    _web_sessions[session_id] = body if isinstance(body, dict) else {}
+    while len(_web_sessions) > _MAX_WEB_SESSIONS:
+        _web_sessions.popitem(last=False)
+    return {"sessionId": session_id}
+
+
+@app.post("/sessions/{session_id}/api/offer")
+async def session_offer(session_id: str, request: Request):
+    if session_id not in _web_sessions:
+        raise HTTPException(status_code=404, detail="Unknown or expired session")
+    data = await request.json()
+    offer = SmallWebRTCRequest(
+        sdp=data["sdp"],
+        type=data["type"],
+        pc_id=data.get("pc_id"),
+        restart_pc=data.get("restart_pc"),
+        request_data=data.get("request_data")
+        or data.get("requestData")
+        or _web_sessions[session_id],
+    )
+    return await webrtc_offer(offer)
+
+
+@app.patch("/sessions/{session_id}/api/offer")
+async def session_ice(session_id: str, request: SmallWebRTCPatchRequest):
+    return await webrtc_ice(request)
+
+
+@app.api_route("/sessions/{session_id}/{path:path}", methods=["GET", "POST", "PUT", "DELETE"])
+async def session_other(session_id: str, path: str):
+    # The UI may ping other session paths; nothing to do for local sessions.
+    return Response(status_code=200 if session_id in _web_sessions else 404)
+
+
 @app.post("/api/offer")
 async def webrtc_offer(request: SmallWebRTCRequest):
     request_data = request.request_data or {}
     agent_id = request_data.get("agent_id") or settings.default_agent_id
     agent = _agent_or_404(agent_id)
+    if missing := missing_keys(agent, settings):
+        raise HTTPException(
+            status_code=400,
+            detail=f"Agent '{agent_id}' needs these keys in agent/.env: {', '.join(missing)}",
+        )
     variables = {k: str(v) for k, v in (request_data.get("variables") or {}).items()}
 
     async def on_connection(connection: SmallWebRTCConnection):

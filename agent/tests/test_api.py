@@ -104,3 +104,18 @@ def test_stream_with_bad_token_is_closed(client):
         )
         with pytest.raises(WebSocketDisconnect):
             ws.receive_text()
+
+
+def test_browser_start_flow(client, monkeypatch):
+    # The prebuilt UI calls /start, then posts its offer under /sessions/{id}/.
+    session_id = client.post("/start", json={"transport": "webrtc", "body": {}}).json()["sessionId"]
+    assert (
+        client.post("/sessions/nope/api/offer", json={"sdp": "x", "type": "offer"}).status_code
+        == 404
+    )
+
+    # Missing provider keys are reported clearly instead of a silent failed call.
+    monkeypatch.setattr(main.settings, "deepgram_api_key", "")
+    res = client.post(f"/sessions/{session_id}/api/offer", json={"sdp": "x", "type": "offer"})
+    assert res.status_code == 400
+    assert "DEEPGRAM_API_KEY" in res.json()["detail"]

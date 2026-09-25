@@ -18,6 +18,29 @@ def _require(value: str, name: str) -> str:
     return value
 
 
+_KEYS = {
+    ("stt", "deepgram"): "deepgram_api_key",
+    ("stt", "sarvam"): "sarvam_api_key",
+    ("llm", "openai"): "openai_api_key",
+    ("llm", "anthropic"): "anthropic_api_key",
+    ("llm", "groq"): "groq_api_key",
+    ("tts", "cartesia"): "cartesia_api_key",
+    ("tts", "elevenlabs"): "elevenlabs_api_key",
+    ("tts", "sarvam"): "sarvam_api_key",
+    ("tts", "deepgram"): "deepgram_api_key",
+}
+
+
+def missing_keys(agent: AgentConfig, settings: Settings) -> list[str]:
+    """Env var names the agent's providers need but that are not configured."""
+    missing: list[str] = []
+    for stage in ("stt", "llm", "tts"):
+        attr = _KEYS.get((stage, getattr(agent, stage).provider))
+        if attr and not getattr(settings, attr) and attr.upper() not in missing:
+            missing.append(attr.upper())
+    return missing
+
+
 def _given(**values):
     """Drop unset options so the provider's own defaults apply."""
     return {k: v for k, v in values.items() if v is not None}
