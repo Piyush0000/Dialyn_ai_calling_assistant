@@ -41,6 +41,11 @@ def missing_keys(agent: AgentConfig, settings: Settings) -> list[str]:
     return missing
 
 
+# Pipecat drops a TTS reply if no audio arrives within 3 s. Cloud TTS occasionally
+# stalls for longer, so give it room: a late greeting beats a silent one.
+CLOUD_TTS_OPTIONS = {"stop_frame_timeout_s": 6.0}
+
+
 def _given(**values):
     """Drop unset options so the provider's own defaults apply."""
     return {k: v for k, v in values.items() if v is not None}
@@ -103,6 +108,7 @@ def build_tts(agent: AgentConfig, settings: Settings) -> TTSService:
         from pipecat.services.cartesia.tts import CartesiaTTSService
 
         return CartesiaTTSService(
+            **CLOUD_TTS_OPTIONS,
             api_key=_require(settings.cartesia_api_key, "CARTESIA_API_KEY"),
             settings=CartesiaTTSService.Settings(
                 **_given(voice=cfg.voice, model=cfg.model, language=cfg.language)
@@ -112,6 +118,7 @@ def build_tts(agent: AgentConfig, settings: Settings) -> TTSService:
         from pipecat.services.elevenlabs.tts import ElevenLabsTTSService
 
         return ElevenLabsTTSService(
+            **CLOUD_TTS_OPTIONS,
             api_key=_require(settings.elevenlabs_api_key, "ELEVENLABS_API_KEY"),
             settings=ElevenLabsTTSService.Settings(
                 **_given(voice=cfg.voice, model=cfg.model, language=cfg.language)
@@ -121,6 +128,7 @@ def build_tts(agent: AgentConfig, settings: Settings) -> TTSService:
         from pipecat.services.sarvam.tts import SarvamTTSService
 
         return SarvamTTSService(
+            **CLOUD_TTS_OPTIONS,
             api_key=_require(settings.sarvam_api_key, "SARVAM_API_KEY"),
             settings=SarvamTTSService.Settings(
                 **_given(voice=cfg.voice, model=cfg.model, language=cfg.language)
@@ -131,6 +139,7 @@ def build_tts(agent: AgentConfig, settings: Settings) -> TTSService:
         from pipecat.services.deepgram.tts import DeepgramTTSService
 
         return DeepgramTTSService(
+            **CLOUD_TTS_OPTIONS,
             api_key=_require(settings.deepgram_api_key, "DEEPGRAM_API_KEY"),
             settings=DeepgramTTSService.Settings(**_given(voice=cfg.voice)),
         )
