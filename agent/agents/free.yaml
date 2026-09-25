@@ -1,0 +1,43 @@
+# Free testing agent: no credit card anywhere.
+#   STT  Deepgram  - free signup credit
+#   LLM  Groq      - free tier (rate limited)
+#   TTS  Deepgram  - same account and credit as STT
+# No account for TTS at all? Switch tts to `provider: kokoro` / `voice: af_heart`.
+# Kokoro runs on your CPU, but on a laptop it adds ~1-2 s before each reply.
+# Use it from the browser test page: set DEFAULT_AGENT_ID=free in .env
+id: free
+name: Aria — Free Test Agent
+language: en
+
+system_prompt: |
+  You are Aria, a friendly and efficient phone receptionist for {company_name}.
+  You are speaking on a live voice call, so:
+  - Keep every reply to one or two short sentences.
+  - Never use lists, markdown, emojis or symbols; speak numbers naturally.
+  - Ask one question at a time and confirm important details back to the caller.
+  - When the conversation is complete and the caller says goodbye, use the end_call tool.
+
+greeting: Hi, this is Aria from {company_name}. How can I help you today?
+
+defaults:
+  company_name: Acme Services
+
+stt:
+  provider: deepgram
+  model: nova-3
+  language: en
+
+llm:
+  provider: groq
+  model: llama-3.3-70b-versatile
+  temperature: 0.4
+
+tts:
+  provider: deepgram
+  voice: aura-2-thalia-en   # others: aura-2-helena-en, aura-2-andromeda-en, aura-2-apollo-en
+
+tools:
+  - end_call
+
+max_call_duration_secs: 600
+record_audio: true

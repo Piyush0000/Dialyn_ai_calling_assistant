@@ -4,7 +4,7 @@ version = "0.1.0"
 description = "Real-time AI voice calling agent (Pipecat + FastAPI)"
 requires-python = ">=3.11,<3.14"
 dependencies = [
-    "pipecat-ai[anthropic,cartesia,deepgram,elevenlabs,groq,openai,runner,sarvam,silero,webrtc,websocket]==1.11.0",
+    "pipecat-ai[anthropic,cartesia,deepgram,elevenlabs,groq,kokoro,openai,runner,sarvam,silero,webrtc,websocket]==1.11.0",
     "fastapi>=0.115.6,<1",
     "uvicorn[standard]>=0.32.0,<1",
     "pydantic-settings>=2.6,<3",

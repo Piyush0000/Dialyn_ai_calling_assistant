@@ -13,7 +13,7 @@ settings = get_settings()
 
 def test_all_agent_files_are_valid():
     agents = list_agents(settings.agents_dir)
-    assert {a.id for a in agents} >= {"default", "hindi_sales"}
+    assert {a.id for a in agents} >= {"default", "hindi_sales", "free"}
 
 
 def test_render_fills_variables_and_blanks_unknown():
@@ -60,7 +60,7 @@ def test_twiml_is_well_formed_and_escaped():
         itertools.product(
             ["deepgram", "sarvam"],
             ["openai", "anthropic", "groq"],
-            ["cartesia", "elevenlabs", "sarvam"],
+            ["cartesia", "elevenlabs", "sarvam", "deepgram"],
         )
     ),
 )

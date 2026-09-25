@@ -20,7 +20,7 @@ class LLMConfig(BaseModel):
 
 
 class TTSConfig(BaseModel):
-    provider: Literal["cartesia", "elevenlabs", "sarvam"] = "cartesia"
+    provider: Literal["cartesia", "elevenlabs", "sarvam", "deepgram", "kokoro"] = "cartesia"
     voice: str | None = None
     model: str | None = None
     language: str | None = None

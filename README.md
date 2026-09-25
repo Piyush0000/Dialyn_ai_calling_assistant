@@ -34,6 +34,22 @@ agent/
   tests/              pytest suite
 ```
 
+## Free mode (no credit card, browser calls)
+
+The `free` agent ([agent/agents/free.yaml](agent/agents/free.yaml)) needs only two free accounts:
+
+| Stage | Service | Where to get a key |
+|---|---|---|
+| Speech-to-text + text-to-speech | Deepgram (free signup credit) | https://console.deepgram.com → API Keys |
+| LLM | Groq (free tier) | https://console.groq.com/keys |
+
+1. Put both keys in `agent/.env` and set `DEFAULT_AGENT_ID=free`.
+2. Run `uv run uvicorn app.main:app --port 7860` from `agent/`.
+3. Open http://localhost:7860/client/, allow the microphone and click **Connect**. Use headphones so the agent doesn't hear itself.
+
+If you want no text-to-speech account at all, set `tts.provider: kokoro` in the agent file. Kokoro runs on your own CPU,
+but it is slower: on a laptop it adds about 1–2 s before each reply.
+
 ## Quick start (browser test, no phone number needed)
 
 ```bash

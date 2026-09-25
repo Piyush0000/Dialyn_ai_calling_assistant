@@ -103,4 +103,17 @@ def build_tts(agent: AgentConfig, settings: Settings) -> TTSService:
                 **_given(voice=cfg.voice, model=cfg.model, language=cfg.language)
             ),
         )
+    if cfg.provider == "deepgram":
+        # Aura voices; shares the Deepgram STT account/credit.
+        from pipecat.services.deepgram.tts import DeepgramTTSService
+
+        return DeepgramTTSService(
+            api_key=_require(settings.deepgram_api_key, "DEEPGRAM_API_KEY"),
+            settings=DeepgramTTSService.Settings(**_given(voice=cfg.voice)),
+        )
+    if cfg.provider == "kokoro":
+        # Runs locally on CPU: free, no API key. Downloads ~340 MB of model files on first use.
+        from pipecat.services.kokoro.tts import KokoroTTSService
+
+        return KokoroTTSService(settings=KokoroTTSService.Settings(**_given(voice=cfg.voice)))
     raise ProviderConfigError(f"Unknown TTS provider {cfg.provider}")
