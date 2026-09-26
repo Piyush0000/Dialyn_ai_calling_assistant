@@ -27,6 +27,20 @@ class Settings(BaseSettings):
     # Telephony used when a store has not chosen one: twilio | plivo | exotel
     default_telephony_provider: str = "twilio"
 
+    # WebRTC (browser calls). On a firewalled server, open this UDP range.
+    webrtc_udp_ports: str = ""  # e.g. "40000-40199"; empty = any port (local dev)
+    webrtc_stun_urls: str = "stun:stun.l.google.com:19302"
+    webrtc_turn_url: str = ""  # optional relay for very strict networks, e.g. turn:host:3478
+    webrtc_turn_username: str = ""
+    webrtc_turn_credential: str = ""
+
+    # WebRTC (browser calls). On a firewalled server, open this UDP range.
+    webrtc_udp_ports: str = ""  # e.g. "40000-40199"; empty = any port (local dev)
+    webrtc_stun_urls: str = "stun:stun.l.google.com:19302"
+    webrtc_turn_url: str = ""  # optional relay for very strict networks, e.g. turn:host:3478
+    webrtc_turn_username: str = ""
+    webrtc_turn_credential: str = ""
+
     twilio_account_sid: str = ""
     twilio_auth_token: str = ""
     twilio_phone_number: str = ""

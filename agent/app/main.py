@@ -33,7 +33,7 @@ from loguru import logger
 from pipecat.runner.utils import parse_telephony_websocket
 from pipecat.serializers.twilio import TwilioFrameSerializer
 from pipecat.transports.base_transport import TransportParams
-from pipecat.transports.smallwebrtc.connection import SmallWebRTCConnection
+from pipecat.transports.smallwebrtc.connection import IceServer, SmallWebRTCConnection
 from pipecat.transports.smallwebrtc.request_handler import (
     SmallWebRTCPatchRequest,
     SmallWebRTCRequest,
@@ -53,9 +53,12 @@ from app.providers import missing_keys
 from app.telephony import reject_twiml, sign_stream_token, stream_twiml, verify_stream_token
 from app.telephony_routes import router as telephony_router
 from app.voices import router as voices_router
+from app.webrtc_net import ice_servers, limit_udp_ports, parse_port_range
 
 STATIC_DIR = Path(__file__).parent / "static"
-webrtc_handler = SmallWebRTCRequestHandler()
+webrtc_handler = SmallWebRTCRequestHandler(
+    ice_servers=[IceServer(**s) for s in ice_servers(settings)]
+)
 # Strong references so in-flight call tasks are not garbage-collected.
 _call_tasks: set[asyncio.Task] = set()
 # Browser sessions created by POST /start -> request body (e.g. {"agent_id": ...}).
@@ -68,6 +71,8 @@ async def lifespan(app: FastAPI):
     if settings.database_url.startswith("sqlite"):
         Path(settings.database_url.split("///", 1)[1]).parent.mkdir(parents=True, exist_ok=True)
     await deps.store.init()
+    if port_range := parse_port_range(settings.webrtc_udp_ports):
+        limit_udp_ports(asyncio.get_running_loop(), *port_range)
     scheduler = asyncio.create_task(service.run_forever()) if settings.scheduler_enabled else None
     yield
     if scheduler:
@@ -340,7 +345,12 @@ async def start_web_session(request: Request):
     _web_sessions[session_id] = body if isinstance(body, dict) else {}
     while len(_web_sessions) > _MAX_WEB_SESSIONS:
         _web_sessions.popitem(last=False)
-    return {"sessionId": session_id}
+    return {"sessionId": session_id, "iceConfig": {"iceServers": ice_servers(settings)}}
+
+
+@app.get("/webrtc/ice-servers", include_in_schema=False)
+async def webrtc_ice_servers():
+    return {"iceServers": ice_servers(settings)}
 
 
 @app.post("/sessions/{session_id}/api/offer")

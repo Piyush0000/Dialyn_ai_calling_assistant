@@ -1,0 +1,47 @@
+name: CI/CD
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: agent
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+        with:
+          python-version: "3.12"
+          enable-cache: true
+      - name: Install
+        run: uv sync --locked --group dev
+      - name: Lint
+        run: uv run ruff check . && uv run ruff format --check .
+      - name: Test
+        run: uv run pytest -q
+
+  deploy:
+    needs: test
+    if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    concurrency: production
+    env:
+      HAS_VPS: ${{ secrets.VPS_SSH_KEY != '' }}
+    steps:
+      - name: Skip (VPS secrets not configured yet)
+        if: env.HAS_VPS != 'true'
+        run: echo "Add VPS_HOST, VPS_USER and VPS_SSH_KEY secrets to enable deploys."
+      - name: Deploy to VPS
+        if: env.HAS_VPS == 'true'
+        uses: appleboy/ssh-action@v1.2.0
+        with:
+          host: ${{ secrets.VPS_HOST }}
+          username: ${{ secrets.VPS_USER }}
+          key: ${{ secrets.VPS_SSH_KEY }}
+          command_timeout: 30m
+          script: bash /opt/dialyn/deploy/deploy.sh

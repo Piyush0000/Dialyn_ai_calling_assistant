@@ -1,0 +1,35 @@
+# Production stack for one VPS. Used by setup_vps.sh and deploy.sh.
+# Host networking: WebRTC needs the server's real IP and its UDP port range;
+# the HTTP port only listens on 127.0.0.1 and is published through Nginx.
+name: dialyn
+
+services:
+  agent:
+    build: ../agent
+    image: dialyn-agent:latest
+    restart: unless-stopped
+    network_mode: host
+    env_file: ../agent/.env
+    environment:
+      PORT: "${DIALYN_PORT:-7860}"
+    command:
+      - uvicorn
+      - app.main:app
+      - --host
+      - "127.0.0.1"
+      - --port
+      - "${DIALYN_PORT:-7860}"
+      - --proxy-headers
+      - --forwarded-allow-ips
+      - "127.0.0.1"
+    volumes:
+      - dialyn-data:/srv/data
+      - ../agent/agents:/srv/agents:ro
+    logging:
+      driver: json-file
+      options:
+        max-size: "20m"
+        max-file: "5"
+
+volumes:
+  dialyn-data:
