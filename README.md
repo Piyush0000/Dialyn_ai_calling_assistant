@@ -44,9 +44,11 @@ cp .env.example .env   # add DEEPGRAM_API_KEY + GROQ_API_KEY (free); SARVAM_API_
 uv run uvicorn app.main:app --port 7860
 ```
 
-On Windows PowerShell, use `curl.exe` (plain `curl` is a different command there), as below.
+**1. Create your store:** open http://localhost:7860/dashboard → **Create store**. You get an owner
+login, a first API key and a webhook secret (shown once, on the Developers page).
 
-**1. Create a merchant** (platform admin; `API_KEY` from `.env`):
+Or from the command line (platform admin; `API_KEY` from `.env`). On Windows PowerShell use
+`curl.exe`, since plain `curl` is a different command there:
 
 ```bash
 curl.exe -X POST http://localhost:7860/admin/tenants -H "X-Admin-Key: <API_KEY>" -H "Content-Type: application/json" -d "{\"name\":\"Demo Store\",\"brand_name\":\"Kurta Kart\",\"agent_name\":\"Priya\"}"
@@ -65,14 +67,56 @@ The page shows the live transcript, the outcome and the timeline.
 
 ## Merchant dashboard
 
-Open http://localhost:7860/dashboard and sign in with the store's API key.
+Open http://localhost:7860/dashboard: **Sign in** with email, **Create store**, or open it with an API key.
 
 - **Overview**: total calls, answer rate, average call length, calls per day, outcomes, event and status breakdowns
 - **Calls**: every call with status, outcome and attempts; filter by status, event or order ID
 - **Call detail**: outcome and notes, order facts, recording player, transcript, timeline, cancel, open browser test
 - **New call**: try any event in the browser (free) or schedule a real phone call
-- **Settings**: brand, agent name, language, calling hours, retries, concurrency, caller ID, support number, webhook, voices
-- **Developers**: API example, events and outcomes, webhook signature check
+- **Integrations**: connect Shopify / WooCommerce, pick which events call customers
+- **Voice & greetings**: choose and preview voices per language; upload a real person's greeting
+- **Team**: invite teammates (owner / admin / member roles), remove members
+- **Settings**: brand, agent name, language, calling hours, retries, concurrency, phone provider, caller ID, support number, webhook
+- **Developers**: create / revoke API keys, rotate the webhook secret, API example, events and outcomes
+
+## Shopify and WooCommerce (automatic calls)
+
+In the dashboard's **Integrations** page copy your webhook URL, then:
+
+- **Shopify**: Settings → Notifications → Webhooks → add JSON webhooks for *Order creation*, *Order payment*,
+  *Fulfillment creation* and *Fulfillment event creation*. Paste Shopify's signing secret into Dialyn.
+- **WooCommerce**: WooCommerce → Settings → Advanced → Webhooks → add *Order created* and *Order updated*
+  (API v3) with a secret; paste the same secret into Dialyn.
+
+| Store event | Call |
+|---|---|
+| New COD order | `cod_verification` (on by default) |
+| New prepaid order | `order_confirmation` |
+| Payment received (non-COD) | `payment_success` |
+| Payment failed (WooCommerce `failed`) | `payment_failed` (on by default) |
+| Fulfillment created / Woo status `shipped` | `order_shipped` |
+| Shopify fulfillment event `out_for_delivery` / Woo status `out-for-delivery` | `out_for_delivery` (on by default) |
+
+Every webhook is verified with your secret; each order gets at most one call per event. Phone numbers
+like `098765 43210` are normalized to `+919876543210`.
+
+## Human-sounding voices
+
+- **English**: 41 Deepgram voices (free credit); **Hinglish**: Sarvam's Indian voices (`priya`, `ritu`, `neha`, …).
+- **ElevenLabs / Cartesia**: paste any voice ID, including a voice cloned from a real person (with their consent).
+- **Recorded greeting**: upload a WAV of a real person saying the opening line for any event and language.
+  Customers hear the human first; the AI continues the conversation.
+
+## India telephony (Plivo / Exotel)
+
+Pick the provider per store in **Settings → Phone provider** and set the credentials in `.env`:
+
+- **Plivo**: `PLIVO_AUTH_ID`, `PLIVO_AUTH_TOKEN`, `PLIVO_PHONE_NUMBER`. Nothing to configure in Plivo:
+  Dialyn passes the answer and hangup URLs with every call.
+- **Exotel**: `EXOTEL_SID`, `EXOTEL_API_KEY`, `EXOTEL_API_TOKEN`, `EXOTEL_CALLER_ID` (ExoPhone) and `EXOTEL_APP_ID`:
+  a flow whose *Voicebot* applet URL is `https://<PUBLIC_HOST>/telephony/exotel/stream-url`.
+
+Busy / unanswered calls are retried on every provider; transfers to a human work on Twilio and Plivo.
 
 ## API reference
 
@@ -111,6 +155,10 @@ e.g. `{"hi": {"tts": {"provider": "elevenlabs", "voice": "<voice id>"}}}` to use
 ```
 agent/
   app/api_v1.py       merchant API (/v1/*) and admin (/admin/tenants)
+  app/accounts.py     signup, login sessions, team invites, API keys
+  app/integrations.py Shopify + WooCommerce webhooks → calls
+  app/voices.py       voice catalog, previews, recorded greetings
+  app/telephony_routes.py  Plivo + Exotel callbacks and media streams
   app/calls.py        scheduler: calling hours, dialing, retries, signed webhooks
   app/ecommerce.py    event templates → agent (prompt, greeting, outcomes, voices)
   app/bot.py          real-time pipeline, tools (record_outcome, end_call, transfer_call)

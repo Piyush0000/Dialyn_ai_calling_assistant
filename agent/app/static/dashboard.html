@@ -141,8 +141,10 @@ const store = {
   get(k) { try { return localStorage.getItem(k); } catch { return null; } },
   set(k, v) { try { v == null ? localStorage.removeItem(k) : localStorage.setItem(k, v); } catch {} },
 };
-let apiKey = store.get("dialyn_api_key");
-let account = null, events = [], refreshTimer = null;
+// A dashboard session token (sess_...) or, for power users, an API key (sk_live_...).
+let token = store.get("dialyn_token") || store.get("dialyn_api_key");
+let account = null, user = null, events = [], refreshTimer = null, welcome = null;
+const canManage = () => user && ["owner", "admin"].includes(user.role);
 
 function h(tag, attrs = {}, ...children) {
   const el = document.createElement(tag);
@@ -173,9 +175,9 @@ const statusEl = (st) => h("span", { class: `status ${STATUS_TONE[st] ?? ""}` },
 async function api(path, opts = {}) {
   const res = await fetch(path, {
     ...opts,
-    headers: { "Authorization": `Bearer ${apiKey}`, ...(opts.body ? { "Content-Type": "application/json" } : {}), ...(opts.headers || {}) },
+    headers: { "Authorization": `Bearer ${token}`, ...(opts.body ? { "Content-Type": "application/json" } : {}), ...(opts.headers || {}) },
   });
-  if (res.status === 401) { signOut(); throw new Error("Your API key is invalid."); }
+  if (res.status === 401 && !path.startsWith("/auth/login") && !path.startsWith("/auth/signup")) { signOut(true); throw new Error("Please sign in again."); }
   const data = res.headers.get("content-type")?.includes("json") ? await res.json() : null;
   if (!res.ok) {
     const detail = data?.detail;
@@ -185,41 +187,113 @@ async function api(path, opts = {}) {
 }
 
 // ------------------------------------------------------------------ shell
-function signOut() { apiKey = null; account = null; store.set("dialyn_api_key", null); location.hash = ""; render(); }
-
-function renderLogin(error) {
-  const input = h("input", { type: "password", placeholder: "sk_live_…", autocomplete: "off", "aria-label": "API key" });
-  const err = h("p", { class: "error" }, error || "");
-  const form = h("form", { class: "grid", onsubmit: async (e) => {
-    e.preventDefault(); apiKey = input.value.trim();
-    try { account = await api("/v1/account"); store.set("dialyn_api_key", apiKey); location.hash = "#/overview"; render(); }
-    catch (x) { apiKey = null; err.textContent = x.message; }
-  } }, h("label", { class: "field" }, "Store API key", input,
-      h("span", { class: "help" }, "Created by the platform admin (POST /admin/tenants). It stays in this browser only.")),
-    h("button", { class: "btn primary", type: "submit" }, "Sign in"), err);
-  document.getElementById("root").replaceChildren(h("div", { class: "login" },
-    h("h1", {}, "Dialyn"), h("p", { class: "sub" }, "AI calling for your store's orders"), h("div", { class: "card" }, form)));
+async function signOut(expired = false) {
+  if (!expired && token?.startsWith("sess_")) { try { await fetch("/auth/logout", { method: "POST", headers: { Authorization: `Bearer ${token}` } }); } catch {} }
+  token = null; account = null; user = null;
+  store.set("dialyn_token", null); store.set("dialyn_api_key", null);
+  go("");
+}
+// Changing the hash already triggers render() via hashchange; render directly only if unchanged.
+function go(route) { if (location.hash === route || (!route && !location.hash)) render(); else location.hash = route; }
+function signedIn(newToken, route = "#/overview") {
+  token = newToken; account = null; user = null; store.set("dialyn_token", token);
+  go(route);
+}
+async function post(path, body) {
+  const res = await fetch(path, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) { const d = data.detail; throw new Error(Array.isArray(d) ? d.map(x => `${x.loc?.slice(-1)[0]}: ${x.msg}`).join("; ") : d || `Request failed (${res.status})`); }
+  return data;
 }
 
-const NAV = [["overview", "Overview"], ["calls", "Calls"], ["new", "New call"], ["settings", "Settings"], ["developers", "Developers"]];
+function authShell(title, sub, ...content) {
+  document.getElementById("root").replaceChildren(h("div", { class: "login" },
+    h("h1", {}, title), h("p", { class: "sub" }, sub), h("div", { class: "card" }, ...content)));
+}
+
+function renderAuth(mode = "login", error = "") {
+  const err = h("p", { class: "error" }, error);
+  const tabs = h("div", { class: "row", style: "margin-bottom:14px" },
+    ...[["login", "Sign in"], ["signup", "Create store"], ["key", "API key"]].map(([m, t]) =>
+      h("button", { class: `btn ${m === mode ? "primary" : ""}`, type: "button", onclick: () => renderAuth(m) }, t)));
+  const field = (name, text, attrs = {}) => h("label", { class: "field" }, text, h("input", { name, required: true, ...attrs }));
+  let form;
+  if (mode === "key") {
+    form = h("form", { class: "grid", onsubmit: async (e) => {
+      e.preventDefault(); const key = new FormData(form).get("key").trim();
+      const res = await fetch("/v1/account", { headers: { Authorization: `Bearer ${key}` } });
+      if (res.ok) signedIn(key); else err.textContent = "That API key is not valid.";
+    } }, field("key", "Store API key", { type: "password", placeholder: "sk_live_…", autocomplete: "off" }),
+      h("span", { class: "muted", style: "font-size:12px" }, "Team, API-key and integration settings need an email sign-in."),
+      h("button", { class: "btn primary", type: "submit" }, "Open dashboard"), err);
+  } else if (mode === "signup") {
+    form = h("form", { class: "grid", onsubmit: async (e) => {
+      e.preventDefault(); const d = Object.fromEntries(new FormData(form));
+      try { const r = await post("/auth/signup", d); welcome = { api_key: r.api_key, webhook_secret: r.webhook_secret }; signedIn(r.session_token, "#/developers"); }
+      catch (x) { err.textContent = x.message; }
+    } }, field("brand_name", "Store / brand name", { placeholder: "Kurta Kart" }), field("name", "Your name"),
+      field("email", "Work email", { type: "email", autocomplete: "email" }),
+      field("password", "Password (8+ characters)", { type: "password", minlength: 8, autocomplete: "new-password" }),
+      h("button", { class: "btn primary", type: "submit" }, "Create store"), err);
+  } else {
+    form = h("form", { class: "grid", onsubmit: async (e) => {
+      e.preventDefault();
+      try { signedIn((await post("/auth/login", Object.fromEntries(new FormData(form)))).session_token); }
+      catch (x) { err.textContent = x.message; }
+    } }, field("email", "Email", { type: "email", autocomplete: "email" }),
+      field("password", "Password", { type: "password", autocomplete: "current-password" }),
+      h("button", { class: "btn primary", type: "submit" }, "Sign in"), err);
+  }
+  authShell("Dialyn", "AI calling for your store's orders", tabs, form);
+}
+
+function renderJoin(inviteToken) {
+  const err = h("p", { class: "error" });
+  const form = h("form", { class: "grid", onsubmit: async (e) => {
+    e.preventDefault(); const d = Object.fromEntries(new FormData(form));
+    try { signedIn((await post("/auth/accept-invite", { token: inviteToken, ...d })).session_token); }
+    catch (x) { err.textContent = x.message; }
+  } }, h("label", { class: "field" }, "Your name", h("input", { name: "name", required: true })),
+    h("label", { class: "field" }, "Choose a password (8+ characters)", h("input", { name: "password", type: "password", minlength: 8, required: true, autocomplete: "new-password" })),
+    h("button", { class: "btn primary", type: "submit" }, "Join the team"), err);
+  authShell("Join your team", "You've been invited to a store on Dialyn.", form);
+}
+
+const NAV = [["overview", "Overview"], ["calls", "Calls"], ["new", "New call"], ["integrations", "Integrations"],
+  ["voice", "Voice & greetings"], ["team", "Team"], ["settings", "Settings"], ["developers", "Developers"]];
 
 async function render() {
   clearInterval(refreshTimer);
-  if (!apiKey) return renderLogin();
-  if (!account) { try { account = await api("/v1/account"); } catch (x) { return renderLogin(x.message); } }
+  const joinMatch = location.hash.match(/^#\/join\/(inv_[\w-]+)/);
+  if (joinMatch) return renderJoin(joinMatch[1]);
+  if (!token) return renderAuth();
+  if (!account) {
+    try { const me = await api("/auth/me"); account = me.tenant; user = me.user; }
+    catch (x) { return renderAuth("login", x.message); }
+  }
   if (!events.length) { try { events = (await api("/v1/events")).data; } catch {} }
-  const [route, param] = (location.hash.replace(/^#\//, "") || "overview").split("/");
+  const [route, param] = (location.hash.replace(/^#\//, "").split("?")[0] || "overview").split("/");
   const main = h("main", {}, h("p", { class: "muted" }, "Loading…"));
   const nav = h("nav", { class: "side" },
     h("div", { class: "brand" }, "Dialyn", h("small", {}, account.brand_name)),
-    ...NAV.map(([k, t]) => h("a", { href: `#/${k}`, class: (route === k || (route === "call" && k === "calls")) ? "active" : "" }, t)),
-    h("div", { class: "spacer" }), h("button", { class: "link", onclick: signOut }, "Sign out"));
+    ...NAV.filter(([k]) => k !== "team" || user).map(([k, t]) => h("a", { href: `#/${k}`, class: (route === k || (route === "call" && k === "calls")) ? "active" : "" }, t)),
+    h("div", { class: "spacer" }),
+    user ? h("div", { class: "muted", style: "padding:4px 10px;font-size:12px" }, `${user.name} · ${user.role}`) : null,
+    h("button", { class: "link", onclick: () => signOut() }, "Sign out"));
   document.getElementById("root").replaceChildren(h("div", { class: "app" }, nav, main));
-  const pages = { overview: pageOverview, calls: pageCalls, call: pageCall, new: pageNew, settings: pageSettings, developers: pageDevelopers };
+  const pages = { overview: pageOverview, calls: pageCalls, call: pageCall, new: pageNew, settings: pageSettings,
+    developers: pageDevelopers, integrations: pageIntegrations, voice: pageVoice, team: pageTeam };
   try { await (pages[route] || pageOverview)(main, param); }
   catch (x) { main.replaceChildren(h("p", { class: "error" }, x.message)); }
 }
 window.addEventListener("hashchange", render);
+
+function needsManager(main, title) {
+  main.replaceChildren(h("h1", {}, title), h("p", { class: "notice" },
+    user ? "Only owners and admins can change this." : "Sign in with your email (not an API key) to manage this."));
+}
+async function copy(text) { try { await navigator.clipboard.writeText(text); toast("Copied"); } catch { toast("Select the text and copy it"); } }
+const secretBox = (value) => h("div", { class: "row" }, h("code", { style: "overflow-wrap:anywhere;flex:1" }, value), h("button", { class: "btn", type: "button", onclick: () => copy(value) }, "Copy"));
 
 // ------------------------------------------------------------------ overview
 async function pageOverview(main) {
@@ -404,7 +478,7 @@ async function pageCall(main, id) {
     if (c.has_recording) {
       try {
         if (!audioUrl) {
-          const res = await fetch(`/v1/calls/${id}/recording`, { headers: { Authorization: `Bearer ${apiKey}` } });
+          const res = await fetch(`/v1/calls/${id}/recording`, { headers: { Authorization: `Bearer ${token}` } });
           if (!res.ok) throw new Error();
           audioUrl = URL.createObjectURL(await res.blob());
         }
@@ -474,17 +548,15 @@ async function pageSettings(main) {
   const a = account;
   const inp = (name, text, attrs = {}, help) => h("label", { class: `field ${attrs.full ? "full" : ""}` }, text,
     h("input", { name, value: a[name] ?? "", ...attrs, full: null }), help ? h("span", { class: "help" }, help) : null);
-  const voice = h("textarea", { name: "voice" }, JSON.stringify(a.voice || {}, null, 2));
   const msg = h("div", { class: "full" });
   const form = h("form", { class: "card form-grid", onsubmit: async (e) => {
     e.preventDefault();
     const d = Object.fromEntries(new FormData(form));
     const body = {};
-    for (const k of ["brand_name", "agent_name", "timezone", "call_window_start", "call_window_end"]) body[k] = d[k];
+    for (const k of ["brand_name", "agent_name", "timezone", "call_window_start", "call_window_end", "telephony_provider"]) body[k] = d[k];
     for (const k of ["max_attempts", "retry_delay_minutes", "max_concurrent_calls"]) body[k] = Number(d[k]);
     for (const k of ["from_number", "support_number", "webhook_url"]) body[k] = d[k] || null;
     body.default_language = d.default_language;
-    try { body.voice = JSON.parse(d.voice || "{}"); } catch { msg.replaceChildren(h("p", { class: "error" }, "Voice settings must be valid JSON.")); return; }
     try { account = await api("/v1/account", { method: "PATCH", body: JSON.stringify(body) }); toast("Settings saved"); msg.replaceChildren(); }
     catch (x) { msg.replaceChildren(h("p", { class: "error" }, x.message)); }
   } },
@@ -498,11 +570,13 @@ async function pageSettings(main) {
     inp("max_attempts", "Attempts per call", { type: "number", min: 1, max: 10 }),
     inp("retry_delay_minutes", "Minutes between attempts", { type: "number", min: 1, max: 1440 }),
     inp("max_concurrent_calls", "Max calls at once", { type: "number", min: 1, max: 500 }),
+    h("label", { class: "field" }, "Phone provider", h("select", { name: "telephony_provider" },
+      ...[["twilio", "Twilio (international)"], ["plivo", "Plivo (India numbers)"], ["exotel", "Exotel (India numbers)"]].map(([v, t]) =>
+        h("option", { value: v, selected: (a.telephony_provider || "twilio") === v }, t))),
+      h("span", { class: "help" }, "For Indian customers use Plivo or Exotel with an Indian caller ID.")),
     inp("from_number", "Caller ID (from number)", { placeholder: "+91…" }, "Your telephony number; empty = platform default"),
     inp("support_number", "Human support number", { placeholder: "+91…" }, "Customers asking for a human are transferred here"),
     inp("webhook_url", "Webhook URL", { type: "url", placeholder: "https://your-store.com/dialyn-webhook", full: true }, "Receives call.completed events, signed with your webhook secret"),
-    h("label", { class: "field full" }, "Voices per language (advanced)", voice,
-      h("span", { class: "help" }, 'Override providers, e.g. {"hi": {"tts": {"provider": "elevenlabs", "voice": "<cloned voice id>"}}}')),
     h("div", { class: "full row" }, h("button", { class: "btn primary", type: "submit" }, "Save settings")), msg);
   main.replaceChildren(h("h1", {}, "Settings"), h("p", { class: "sub" }, "How and when your customers are called."), form);
 }
@@ -511,7 +585,7 @@ async function pageSettings(main) {
 async function pageDevelopers(main) {
   const base = location.origin;
   const example = `curl -X POST ${base}/v1/calls \\
-  -H "Authorization: Bearer ${account.api_key_prefix}…" \\
+  -H "Authorization: Bearer <your API key>" \\
   -H "Content-Type: application/json" \\
   -H "Idempotency-Key: order-KK-20931-cod" \\
   -d '{
@@ -526,20 +600,215 @@ async function pageDevelopers(main) {
 def is_valid(body: bytes, signature_header: str, webhook_secret: str) -> bool:
     expected = "sha256=" + hmac.new(webhook_secret.encode(), body, hashlib.sha256).hexdigest()
     return hmac.compare_digest(expected, signature_header)`;
+
+  const keysCard = h("section", { class: "card" }, h("h2", {}, "API keys"));
+  if (canManage()) {
+    const list = h("div");
+    const reveal = h("div");
+    const loadKeys = async () => {
+      const { data } = await api("/v1/api-keys");
+      list.replaceChildren(data.length ? h("div", { class: "table-wrap" }, h("table", { style: "min-width:520px" },
+        h("thead", {}, h("tr", {}, ...["Name", "Key", "Created", "Last used", ""].map(t => h("th", {}, t)))),
+        h("tbody", {}, data.map(k => h("tr", { style: "cursor:default" }, h("td", {}, k.name), h("td", {}, h("code", {}, `${k.prefix}…`)),
+          h("td", { class: "num" }, fmtTime(k.created_at)), h("td", { class: "num" }, fmtTime(k.last_used_at)),
+          h("td", {}, h("button", { class: "btn danger", onclick: async () => {
+            try { await api(`/v1/api-keys/${k.id}`, { method: "DELETE" }); toast("Key revoked"); loadKeys(); } catch (x) { toast(x.message); }
+          } }, "Revoke"))))))) : h("p", { class: "muted" }, "No active keys."));
+    };
+    const nameIn = h("input", { placeholder: "Key name, e.g. Shopify server", "aria-label": "Key name" });
+    keysCard.append(list, h("div", { class: "row", style: "margin-top:12px" }, h("div", { style: "flex:1;min-width:200px" }, nameIn),
+      h("button", { class: "btn primary", onclick: async () => {
+        try { const k = await api("/v1/api-keys", { method: "POST", body: JSON.stringify({ name: nameIn.value || "Default" }) });
+          reveal.replaceChildren(h("div", { class: "notice", style: "margin-top:12px" }, h("strong", {}, "New key — copy it now, it won't be shown again:"), secretBox(k.api_key)));
+          nameIn.value = ""; loadKeys(); } catch (x) { toast(x.message); }
+      } }, "Create key")), reveal);
+    await loadKeys();
+  } else {
+    keysCard.append(h("p", { class: "muted" }, "Sign in with your email as an owner or admin to create and revoke keys."));
+  }
+
+  const secretCard = h("section", { class: "card" }, h("h2", {}, "Webhook signing secret"),
+    h("p", {}, "Results are sent to your webhook URL (Settings) with an ", h("code", {}, "X-Signature"), " header signed with this secret."));
+  const secretOut = h("div");
+  if (canManage()) secretCard.append(h("button", { class: "btn", onclick: async () => {
+    try { const r = await api("/v1/account/webhook-secret", { method: "POST" });
+      secretOut.replaceChildren(h("div", { class: "notice", style: "margin-top:12px" }, h("strong", {}, "New secret (the old one stopped working):"), secretBox(r.webhook_secret)));
+    } catch (x) { toast(x.message); }
+  } }, "Generate new secret"), secretOut);
+
   main.replaceChildren(
     h("h1", {}, "Developers"), h("p", { class: "sub" }, "Connect your store in a few lines."),
     h("div", { class: "grid" },
-      h("section", { class: "card" }, h("h2", {}, "Your API key"),
-        h("p", {}, "Key starting with ", h("code", {}, account.api_key_prefix), ". The full key and webhook secret were shown once when your store was created."),
+      welcome ? h("section", { class: "card notice" }, h("h2", {}, "Welcome! Save these now"),
+        h("p", {}, "Your first API key (for your server or scripts):"), secretBox(welcome.api_key),
+        h("p", {}, "Your webhook signing secret:"), secretBox(welcome.webhook_secret),
+        h("p", { class: "muted" }, "They are shown only once. Next: set up Integrations (Shopify / WooCommerce) or try a New call.")) : null,
+      keysCard, secretCard,
+      h("section", { class: "card" }, h("h2", {}, "Schedule a call"), h("pre", { class: "code" }, example),
         h("p", { class: "muted" }, "Full reference: ", h("a", { href: "/docs", target: "_blank", rel: "noopener" }, "interactive API docs"))),
-      h("section", { class: "card" }, h("h2", {}, "Schedule a call"), h("pre", { class: "code" }, example)),
       h("section", { class: "card" }, h("h2", {}, "Events and outcomes"),
         h("div", { class: "table-wrap" }, h("table", {}, h("thead", {}, h("tr", {}, h("th", {}, "event"), h("th", {}, "What the agent does"), h("th", {}, "Outcomes"))),
           h("tbody", {}, events.map(e => h("tr", { style: "cursor:default" }, h("td", {}, h("code", {}, e.event)), h("td", {}, e.goal),
             h("td", {}, [...e.outcomes, "callback_requested", "wrong_number", "needs_human"].map(o => h("div", {}, h("code", {}, o)))))))))),
-      h("section", { class: "card" }, h("h2", {}, "Webhook"),
-        h("p", {}, "When a call finishes we POST ", h("code", {}, '{"type": "call.completed", "data": {…}}'), " to your webhook URL with an ", h("code", {}, "X-Signature"), " header. Verify it before trusting the body:"),
-        h("pre", { class: "code" }, verify))));
+      h("section", { class: "card" }, h("h2", {}, "Verify webhooks"), h("pre", { class: "code" }, verify))));
+  welcome = null;
+}
+
+// ------------------------------------------------------------------ integrations
+const INTEGRATION_HELP = {
+  shopify: ["Shopify admin → Settings → Notifications → Webhooks.",
+    "Create JSON webhooks for Order creation, Order payment, Fulfillment creation and Fulfillment event creation, all pointing at the URL below.",
+    "Copy the signing secret Shopify shows under the webhooks list and paste it here."],
+  woocommerce: ["WordPress → WooCommerce → Settings → Advanced → Webhooks → Add webhook.",
+    "Add two webhooks, Order created and Order updated (API version v3), delivering to the URL below.",
+    "Type any long secret into WooCommerce and paste the same secret here."],
+};
+async function pageIntegrations(main) {
+  const all = await api("/v1/integrations");
+  const card = (provider, title) => {
+    const cfg = all[provider];
+    const msg = h("div");
+    const form = h("form", { class: "grid", onsubmit: async (e) => {
+      e.preventDefault(); const d = new FormData(form);
+      const body = { enabled: d.get("enabled") === "on", default_country_code: d.get("cc"), language: d.get("language") || null,
+        events: Object.fromEntries(events.map(ev => [ev.event, d.get(`ev_${ev.event}`) === "on"])) };
+      if (d.get("secret")) body.secret = d.get("secret");
+      try { all[provider] = await api(`/v1/integrations/${provider}`, { method: "PUT", body: JSON.stringify(body) }); toast(`${title} saved`); render(); }
+      catch (x) { msg.replaceChildren(h("p", { class: "error" }, x.message)); }
+    } },
+      h("ol", { style: "margin:0;padding-left:18px;color:var(--ink-2)" }, INTEGRATION_HELP[provider].map(t => h("li", {}, t))),
+      h("div", {}, h("div", { class: "muted", style: "font-size:12px" }, "Webhook URL"), secretBox(cfg.webhook_url)),
+      h("label", { class: "field" }, cfg.configured ? "Signing secret (saved — leave empty to keep it)" : "Signing secret",
+        h("input", { name: "secret", type: "password", autocomplete: "off", minlength: 8 })),
+      h("fieldset", { style: "border:1px solid var(--line);border-radius:8px;padding:10px 12px" }, h("legend", { class: "muted" }, "Call customers for"),
+        ...events.map(ev => h("label", { style: "display:flex;gap:8px;align-items:center;padding:3px 0" },
+          h("input", { type: "checkbox", name: `ev_${ev.event}`, checked: cfg.events[ev.event], style: "width:auto" }), ev.title))),
+      h("div", { class: "form-grid" },
+        h("label", { class: "field" }, "Default country code", h("input", { name: "cc", value: cfg.default_country_code, pattern: "\\d{1,3}" }),
+          h("span", { class: "help" }, "Used when a phone number has no country code (91 = India)")),
+        h("label", { class: "field" }, "Call language", h("select", { name: "language" },
+          h("option", { value: "", selected: !cfg.language }, "Store default"), h("option", { value: "en", selected: cfg.language === "en" }, "English"),
+          h("option", { value: "hi", selected: cfg.language === "hi" }, "Hinglish")))),
+      h("label", { style: "display:flex;gap:8px;align-items:center" }, h("input", { type: "checkbox", name: "enabled", checked: cfg.enabled, style: "width:auto" }), `Turn on ${title} calls`),
+      canManage() ? h("div", { class: "row" }, h("button", { class: "btn primary", type: "submit" }, "Save")) : h("p", { class: "muted" }, "Owners and admins can change this."),
+      msg);
+    return h("section", { class: "card" }, h("div", { class: "row", style: "justify-content:space-between;margin-bottom:8px" },
+      h("h2", { style: "margin:0" }, title), h("span", { class: `status ${cfg.enabled ? "good" : ""}` }, cfg.enabled ? "on" : "off")), form);
+  };
+  main.replaceChildren(h("h1", {}, "Integrations"),
+    h("p", { class: "sub" }, "Connect your store once; new orders, payments and deliveries trigger calls automatically. Each order gets at most one call per event."),
+    h("div", { class: "grid cols-2" }, card("shopify", "Shopify"), card("woocommerce", "WooCommerce")));
+}
+
+// ------------------------------------------------------------------ voice & greetings
+async function pageVoice(main) {
+  const [catalog, fresh] = await Promise.all([api("/v1/voices"), api("/v1/account")]);
+  account = fresh;
+  const providers = catalog.providers;
+  const player = h("audio", { controls: true, hidden: true, style: "margin-top:10px" });
+  let playerUrl = null;
+  const play = (blob) => { if (playerUrl) URL.revokeObjectURL(playerUrl); playerUrl = URL.createObjectURL(blob); player.src = playerUrl; player.hidden = false; player.play().catch(() => {}); };
+
+  const DEFAULTS = { en: { provider: "deepgram", voice: "aura-2-thalia-en" }, hi: { provider: "sarvam", voice: "priya" } };
+  const langCard = (lang, title) => {
+    const current = { ...DEFAULTS[lang], ...((account.voice || {})[lang]?.tts || {}) };
+    const provSel = h("select", { "aria-label": "Provider" }, ...Object.entries(providers).map(([k, p]) =>
+      h("option", { value: k, selected: current.provider === k }, `${k}${p.configured ? "" : " (no key on server)"}`)));
+    const voiceBox = h("div");
+    const note = h("p", { class: "muted", style: "font-size:12px;margin:4px 0 0" });
+    let voiceInput;
+    const drawVoices = () => {
+      const p = providers[provSel.value];
+      note.textContent = p.note;
+      const list = p.voices.filter(v => !v.languages || v.languages.includes(lang));
+      voiceInput = list.length
+        ? h("select", { "aria-label": "Voice" }, ...list.map(v => h("option", { value: v.id, selected: v.id === current.voice },
+            [v.label, v.gender, v.accent].filter(Boolean).join(" · "))))
+        : h("input", { placeholder: "Voice ID (paste from the provider's voice library)", value: provSel.value === current.provider ? current.voice || "" : "" });
+      voiceBox.replaceChildren(h("label", { class: "field" }, "Voice", voiceInput));
+    };
+    provSel.onchange = drawVoices; drawVoices();
+    const previewBtn = h("button", { class: "btn", type: "button", onclick: async () => {
+      previewBtn.disabled = true;
+      try {
+        const res = await fetch("/v1/voices/preview", { method: "POST", headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+          body: JSON.stringify({ provider: provSel.value, voice: voiceInput.value, language: lang }) });
+        if (!res.ok) throw new Error((await res.json().catch(() => ({}))).detail || "Preview failed");
+        play(await res.blob());
+      } catch (x) { toast(x.message); } finally { previewBtn.disabled = false; }
+    } }, "▶ Preview");
+    const saveBtn = h("button", { class: "btn primary", type: "button", onclick: async () => {
+      const voice = { ...(account.voice || {}) };
+      voice[lang] = { ...(voice[lang] || {}), tts: { provider: provSel.value, voice: voiceInput.value, ...(lang === "hi" && provSel.value === "sarvam" ? { language: "hi-IN" } : {}) } };
+      try { account = await api("/v1/account", { method: "PATCH", body: JSON.stringify({ voice }) }); toast(`${title} voice saved`); }
+      catch (x) { toast(x.message); }
+    } }, "Use this voice");
+    return h("section", { class: "card" }, h("h2", {}, title),
+      h("div", { class: "grid" }, h("label", { class: "field" }, "Provider", provSel), note, voiceBox,
+        h("div", { class: "row" }, previewBtn, canManage() || !user ? saveBtn : null)));
+  };
+
+  const clipRows = [];
+  for (const lang of ["hi", "en"]) for (const ev of events) {
+    const key = `${lang}:${ev.event}`, clip = (account.clips || {})[key];
+    const fileIn = h("input", { type: "file", accept: ".wav,audio/wav", "aria-label": "WAV file" });
+    const textIn = h("input", { placeholder: "Exact words spoken in the recording", value: clip?.text || "", "aria-label": "Transcript" });
+    clipRows.push(h("tr", { style: "cursor:default" },
+      h("td", {}, ev.title, h("div", { class: "muted" }, lang === "hi" ? "Hinglish" : "English")),
+      h("td", {}, clip ? h("span", { class: "status good" }, `${clip.secs}s recorded`) : h("span", { class: "muted" }, "AI voice")),
+      h("td", { style: "min-width:220px" }, textIn),
+      h("td", { style: "min-width:200px" }, fileIn),
+      h("td", { style: "white-space:nowrap" },
+        h("button", { class: "btn", onclick: async () => {
+          if (!fileIn.files[0] || !textIn.value.trim()) return toast("Choose a WAV file and type what it says");
+          const fd = new FormData(); fd.append("file", fileIn.files[0]); fd.append("text", textIn.value.trim());
+          const res = await fetch(`/v1/clips/${lang}/${ev.event}`, { method: "PUT", headers: { Authorization: `Bearer ${token}` }, body: fd });
+          const data = await res.json().catch(() => ({}));
+          if (!res.ok) return toast(data.detail || "Upload failed");
+          toast("Recording saved"); render();
+        } }, "Upload"), " ",
+        clip ? h("button", { class: "btn", onclick: async () => {
+          const res = await fetch(`/v1/clips/${lang}/${ev.event}/audio`, { headers: { Authorization: `Bearer ${token}` } });
+          if (res.ok) play(await res.blob());
+        } }, "▶") : null, " ",
+        clip ? h("button", { class: "btn danger", onclick: async () => {
+          try { await api(`/v1/clips/${lang}/${ev.event}`, { method: "DELETE" }); toast("Recording removed"); render(); } catch (x) { toast(x.message); }
+        } }, "Remove") : null)));
+  }
+
+  main.replaceChildren(h("h1", {}, "Voice & greetings"),
+    h("p", { class: "sub" }, "Pick how your agent sounds, and optionally record a real person for the opening line."),
+    h("div", { class: "grid cols-2" }, langCard("en", "English calls"), langCard("hi", "Hinglish calls")),
+    player,
+    h("section", { class: "card", style: "margin-top:16px" }, h("h2", {}, "Recorded greetings (human voice)"),
+      h("p", {}, "Upload a WAV (16-bit, up to 30 s) of a real person saying the first line. Customers hear the human first, then the AI continues. Keep it generic: no customer name, since it plays on every call."),
+      canManage() ? h("div", { class: "table-wrap" }, h("table", {}, h("thead", {}, h("tr", {}, ...["Event", "Now", "What the recording says", "WAV file", ""].map(t => h("th", {}, t)))),
+        h("tbody", {}, clipRows))) : h("p", { class: "muted" }, "Sign in as an owner or admin to upload recordings.")));
+}
+
+// ------------------------------------------------------------------ team
+async function pageTeam(main) {
+  if (!user) return needsManager(main, "Team");
+  const t = await api("/v1/team");
+  const out = h("div");
+  const emailIn = h("input", { type: "email", placeholder: "teammate@yourstore.com", required: true, "aria-label": "Email" });
+  const roleSel = h("select", { "aria-label": "Role" }, h("option", { value: "member" }, "Member (view calls, create calls)"), h("option", { value: "admin" }, "Admin (also keys, integrations, voice)"));
+  const inviteForm = h("form", { class: "row", onsubmit: async (e) => {
+    e.preventDefault();
+    try { const r = await api("/v1/team/invites", { method: "POST", body: JSON.stringify({ email: emailIn.value, role: roleSel.value }) });
+      out.replaceChildren(h("div", { class: "notice", style: "margin-top:12px" }, h("strong", {}, "Send this invite link (works once, 7 days):"), secretBox(location.origin + r.invite_path)));
+      emailIn.value = ""; } catch (x) { toast(x.message); }
+  } }, h("div", { style: "flex:2;min-width:200px" }, emailIn), h("div", { style: "flex:1;min-width:180px" }, roleSel), h("button", { class: "btn primary", type: "submit" }, "Invite"));
+  main.replaceChildren(h("h1", {}, "Team"), h("p", { class: "sub" }, "Everyone who can sign in to this store's dashboard."),
+    h("div", { class: "table-wrap" }, h("table", { style: "min-width:560px" },
+      h("thead", {}, h("tr", {}, ...["Name", "Email", "Role", "Last sign-in", ""].map(x => h("th", {}, x)))),
+      h("tbody", {}, t.members.map(m => h("tr", { style: "cursor:default" }, h("td", {}, m.name, m.id === t.you ? h("span", { class: "muted" }, " (you)") : null),
+        h("td", {}, m.email), h("td", {}, h("span", { class: "chip" }, m.role)), h("td", { class: "num" }, fmtTime(m.last_login_at)),
+        h("td", {}, user.role === "owner" && m.id !== t.you ? h("button", { class: "btn danger", onclick: async () => {
+          try { await api(`/v1/team/members/${m.id}`, { method: "DELETE" }); toast("Removed"); render(); } catch (x) { toast(x.message); }
+        } }, "Remove") : null)))))),
+    t.invites.length ? h("p", { class: "muted", style: "margin-top:10px" }, `Pending invites: ${t.invites.map(i => `${i.email} (${i.role})`).join(", ")}`) : null,
+    canManage() ? h("section", { class: "card", style: "margin-top:16px" }, h("h2", {}, "Invite a teammate"), inviteForm, out) : null);
 }
 
 render();

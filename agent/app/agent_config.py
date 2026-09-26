@@ -32,6 +32,8 @@ class AgentConfig(BaseModel):
     language: str = "en"
     system_prompt: str
     greeting: str | None = None
+    # WAV of a real person saying ``greeting``; played instead of synthesizing it.
+    greeting_audio: str | None = None
     defaults: dict[str, str] = Field(default_factory=dict)
     stt: STTConfig = Field(default_factory=STTConfig)
     llm: LLMConfig = Field(default_factory=LLMConfig)

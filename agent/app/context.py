@@ -6,10 +6,16 @@ from app.calls import CallService
 from app.config import get_settings
 from app.db import Call, CallStore
 from app.ecommerce import build_agent
-from app.telephony import Twilio
+from app.telephony import Exotel, Plivo, Twilio
 
 settings = get_settings()
-deps = Deps(settings=settings, store=CallStore(settings.database_url), twilio=Twilio(settings))
+twilio = Twilio(settings)
+deps = Deps(
+    settings=settings,
+    store=CallStore(settings.database_url),
+    twilio=twilio,
+    telephony={"twilio": twilio, "plivo": Plivo(settings), "exotel": Exotel(settings)},
+)
 service = CallService(deps)
 deps.on_call_finished = service.call_finished
 

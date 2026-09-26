@@ -20,11 +20,16 @@ in a natural, human-sounding voice and reports the outcome back.
 - [x] English (free stack) and Hinglish (Sarvam Indian voices); per-merchant voice override (e.g. ElevenLabs clone)
 - [x] Browser test page per call (`channel: "web"`), no phone needed
 
+- [x] Merchant dashboard: overview charts, call log, call detail (recording, transcript, timeline), settings
+- [x] Store signup / login, team invites with roles, multiple API keys, webhook-secret rotation
+- [x] Shopify + WooCommerce webhooks → automatic calls (signed, one call per order per event)
+- [x] India telephony: Plivo and Exotel alongside Twilio, per-store choice
+- [x] Human voice: voice picker with live previews, cloned voices (ElevenLabs), recorded human greetings
+
 **Next**
-- [ ] Merchant dashboard: API keys, call log with filters, transcript + recording player, outcome charts, settings
-- [ ] India telephony: Exotel / Plivo numbers (cheaper, local caller ID), DLT/TRAI compliance, DND scrubbing
-- [ ] Human voice: pre-recorded human clips for fixed lines (greeting, disclosure) + cloned voice for the rest
-- [ ] Plugins: Shopify app, WooCommerce plugin, Shiprocket/Delhivery status hooks → automatic calls
+- [ ] Verify Plivo / Exotel end-to-end with real accounts; DLT/TRAI compliance, DND scrubbing
+- [ ] Shopify public app (OAuth install) instead of manual webhooks; Shiprocket/Delhivery status hooks
+- [ ] Password reset and email verification (needs an email provider)
 - [ ] Actions: send the payment link / WhatsApp message during the call; update order status via merchant API
 - [ ] Billing: per-minute usage metering, plans, invoices
 - [ ] Voicemail / answering-machine detection; IVR-style DTMF fallback ("press 1 to confirm")

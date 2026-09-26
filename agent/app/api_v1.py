@@ -23,7 +23,8 @@ from fastapi import APIRouter, Depends, Header, HTTPException, Query
 from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field, HttpUrl
 
-from app.calls import hash_api_key, new_api_key, public_call, web_test_token
+from app.accounts import Principal, current_tenant, provision_tenant, require_role
+from app.calls import public_call, web_test_token
 from app.context import deps, service, settings
 from app.db import Tenant, now_utc
 from app.ecommerce import DEFAULT_STACKS, TEMPLATES, EventType
@@ -34,16 +35,6 @@ HHMM = r"^([01]\d|2[0-3]):[0-5]\d$"
 
 
 # ------------------------------------------------------------------- auth
-
-
-async def current_tenant(authorization: str = Header(default="")) -> Tenant:
-    scheme, _, key = authorization.partition(" ")
-    if scheme.lower() != "bearer" or not key:
-        raise HTTPException(status_code=401, detail="Use 'Authorization: Bearer <api key>'")
-    tenant = await deps.store.get_tenant_by_key_hash(hash_api_key(key))
-    if tenant is None:
-        raise HTTPException(status_code=401, detail="Invalid API key")
-    return tenant
 
 
 def require_admin(x_admin_key: str = Header(default="")) -> None:
@@ -106,6 +97,7 @@ class AccountUpdate(BaseModel):
     support_number: str | None = Field(default=None, pattern=E164)
     webhook_url: HttpUrl | None = None
     voice: dict[str, Any] | None = None
+    telephony_provider: Literal["twilio", "plivo", "exotel"] | None = None
 
 
 class CreateTenant(AccountUpdate):
@@ -122,10 +114,15 @@ async def create_call(
     tenant: Tenant = Depends(current_tenant),
     idempotency_key: str | None = Header(default=None),
 ):
+    return _created(await schedule_call(tenant, body, idempotency_key))
+
+
+async def schedule_call(tenant: Tenant, body: CreateCall, idempotency_key: str | None = None):
+    """Create (or, with the same idempotency key, return) a call. Shared with integrations."""
     if idempotency_key:
         existing = await deps.store.get_by_idempotency_key(tenant.id, idempotency_key)
         if existing:
-            return _created(existing)
+            return existing
 
     language = body.customer.language or tenant.default_language
     # Browser test calls skip the dialer: they wait for the tester to open test_url.
@@ -136,7 +133,9 @@ async def create_call(
         event_type=body.event,
         channel=body.channel,
         direction="outbound" if body.channel == "phone" else "web",
-        provider="twilio" if body.channel == "phone" else "webrtc",
+        provider=(tenant.telephony_provider or settings.default_telephony_provider)
+        if body.channel == "phone"
+        else "webrtc",
         status=initial,
         to_number=body.customer.phone,
         customer_name=body.customer.name,
@@ -149,7 +148,7 @@ async def create_call(
         next_attempt_at=(body.schedule_at or now_utc()) if body.channel == "phone" else None,
         timeline=[{"at": now_utc().isoformat(), "event": "created", "status": initial}],
     )
-    return _created(call)
+    return call
 
 
 def _created(call) -> dict[str, Any]:
@@ -280,20 +279,21 @@ async def update_account(body: AccountUpdate, tenant: Tenant = Depends(current_t
     return updated.to_dict()
 
 
+@router.post("/v1/account/webhook-secret")
+async def rotate_webhook_secret(principal: Principal = Depends(require_role("owner", "admin"))):
+    """Issue a new webhook signing secret (the old one stops working immediately)."""
+    secret = "whsec_" + secrets.token_urlsafe(24)
+    await deps.store.update_tenant(principal.tenant.id, webhook_secret=secret)
+    return {"webhook_secret": secret, "note": "Copy it now; it is not shown again."}
+
+
 @router.post("/admin/tenants", status_code=201, dependencies=[Depends(require_admin)])
 async def create_tenant(body: CreateTenant):
     fields = {k: v for k, v in body.model_dump(exclude_unset=True).items() if v is not None}
     if "webhook_url" in fields:
         fields["webhook_url"] = str(fields["webhook_url"])
     _check_timezone(fields.get("timezone"))
-    api_key = new_api_key()
-    webhook_secret = "whsec_" + secrets.token_urlsafe(24)
-    tenant = await deps.store.create_tenant(
-        **fields,
-        api_key_hash=hash_api_key(api_key),
-        api_key_prefix=api_key[:12],
-        webhook_secret=webhook_secret,
-    )
+    tenant, api_key, webhook_secret = await provision_tenant(**fields)
     return {
         "tenant": tenant.to_dict(),
         "api_key": api_key,

@@ -15,6 +15,7 @@ from pipecat.audio.vad.silero import SileroVADAnalyzer
 from pipecat.frames.frames import (
     EndWorkerFrame,
     FunctionCallResultProperties,
+    OutputAudioRawFrame,
     TTSSpeakFrame,
 )
 from pipecat.pipeline.pipeline import Pipeline
@@ -35,7 +36,7 @@ from app.agent_config import AgentConfig
 from app.config import Settings
 from app.db import CallStore
 from app.providers import build_llm, build_stt, build_tts
-from app.telephony import Twilio, transfer_twiml
+from app.telephony import Twilio, sign_stream_token
 
 WRAP_UP_MESSAGE = "We're almost out of time for this call. Thank you so much, goodbye!"
 
@@ -45,6 +46,8 @@ class Deps:
     settings: Settings
     store: CallStore
     twilio: Twilio
+    # Every telephony provider by name ("twilio", "plivo", "exotel").
+    telephony: dict[str, Any] = field(default_factory=dict)
     # Runs after every call is persisted (webhooks, retries). Receives the call id.
     on_call_finished: Callable[[str], Awaitable[None]] | None = None
 
@@ -53,7 +56,8 @@ class Deps:
 class CallSession:
     call_id: str
     agent: AgentConfig  # already rendered with call variables
-    provider_call_id: str | None = None  # Twilio CallSid; None for browser calls
+    provider_call_id: str | None = None  # provider call id; None for browser calls
+    provider: str = "twilio"
     transcript: list[dict[str, Any]] = field(default_factory=list)
     end_reason: str | None = None
     transferred: bool = False
@@ -90,16 +94,26 @@ def _build_tools(session: CallSession, deps: Deps, worker_ref: list[PipelineWork
             return
         reason = str(params.arguments.get("reason", ""))
         logger.info(f"[{session.call_id}] transferring to {number}: {reason}")
+        if session.provider not in ("twilio", "plivo"):
+            await params.result_callback(
+                {"status": "unavailable", "detail": "Transfers are not supported on this line."}
+            )
+            return
         session.transferred = True
         session.end_reason = "transferred"
         await params.result_callback(
             {"status": "transferring"}, properties=FunctionCallResultProperties(run_llm=False)
         )
-        # Replacing the call's TwiML ends our media stream and bridges the caller.
-        await deps.twilio.redirect(
-            session.provider_call_id,
-            transfer_twiml(number, "Please hold while I connect you."),
-        )
+        message = "Please hold while I connect you."
+        if session.provider == "twilio":
+            await deps.twilio.transfer(session.provider_call_id, number, message)
+        else:
+            token = sign_stream_token(deps.settings.stream_signing_secret, session.call_id)
+            url = (
+                f"{deps.settings.public_base_url}/telephony/plivo/transfer/{session.call_id}"
+                f"?token={token}"
+            )
+            await deps.telephony["plivo"].transfer_to_url(session.provider_call_id, url)
 
     async def record_outcome(params: FunctionCallParams):
         outcome = str(params.arguments.get("outcome", ""))
@@ -179,6 +193,18 @@ def _build_tools(session: CallSession, deps: Deps, worker_ref: list[PipelineWork
         handlers["transfer_call"] = transfer_call
 
     return schemas, handlers
+
+
+def load_clip_frames(path: str, chunk_ms: int = 40) -> list[OutputAudioRawFrame]:
+    """Split a mono 16-bit WAV into output frames (the transport resamples as needed)."""
+    with wave.open(path, "rb") as wf:
+        rate, channels = wf.getframerate(), wf.getnchannels()
+        audio = wf.readframes(wf.getnframes())
+    step = int(rate * chunk_ms / 1000) * 2 * channels
+    return [
+        OutputAudioRawFrame(audio=audio[i : i + step], sample_rate=rate, num_channels=channels)
+        for i in range(0, len(audio), step)
+    ]
 
 
 def _wav_bytes(audio: bytes, sample_rate: int, num_channels: int) -> bytes:
@@ -282,6 +308,19 @@ async def run_call(
         if audio_buffer:
             await audio_buffer.start_recording()
         timer = asyncio.create_task(enforce_max_duration())
+        if agent.greeting_audio:
+            # A real person's recorded greeting: play it and tell the LLM what was said.
+            try:
+                frames = load_clip_frames(agent.greeting_audio)
+            except (OSError, wave.Error):
+                logger.exception(f"[{session.call_id}] greeting clip unreadable; using TTS")
+                frames = []
+            if frames:
+                context.add_message({"role": "assistant", "content": agent.greeting})
+                session.transcript.append({"role": "assistant", "text": agent.greeting, "ts": None})
+                for frame in frames:
+                    await tts.push_frame(frame)
+                return
         if agent.greeting:
             # Speak the fixed greeting immediately (no LLM round-trip = faster pickup).
             await worker.queue_frames([TTSSpeakFrame(agent.greeting)])
@@ -330,7 +369,8 @@ async def run_call(
         ended_at = datetime.now(UTC)
         if session.is_phone_call and not session.transferred:
             # Make sure the PSTN leg is released when the agent ends the conversation.
-            await deps.twilio.hang_up(session.provider_call_id)
+            provider = deps.telephony.get(session.provider, deps.twilio)
+            await provider.hang_up(session.provider_call_id)
         await deps.store.update(
             session.call_id,
             status="transferred" if session.transferred else "completed",

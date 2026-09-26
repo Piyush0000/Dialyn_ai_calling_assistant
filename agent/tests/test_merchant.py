@@ -140,7 +140,10 @@ def test_due_call_is_dialed_with_signed_stream(client):
     assert call["id"] in client.placed[-1]["twiml"]
     detail = client.get(f"/v1/calls/{call['id']}", headers=auth).json()
     assert detail["status"] == "dialing" and detail["attempts"] == 1
-    assert [t["event"] for t in detail["timeline"]][:2] == ["created", "dialing attempt 1"]
+    assert [t["event"] for t in detail["timeline"]][:2] == [
+        "created",
+        "dialing attempt 1 via twilio",
+    ]
 
 
 def test_outside_calling_hours_defers(client, monkeypatch):

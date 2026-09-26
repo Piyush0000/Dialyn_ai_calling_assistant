@@ -6,6 +6,7 @@ is instructed never to invent anything else.
 """
 
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Any, Literal
 
 from app.agent_config import AgentConfig, LLMConfig, STTConfig, TTSConfig
@@ -250,6 +251,11 @@ Ending the call:
 - If the customer asks for a human, record needs_human and use transfer_call."""
 
     greeting = template.greeting_hi if language == "hi" else template.greeting_en
+    greeting = greeting.format(**values)
+    clip = (tenant.clips or {}).get(f"{language}:{call.event_type}")
+    greeting_audio = None
+    if clip and Path(clip.get("path", "")).is_file():
+        greeting, greeting_audio = clip["text"], clip["path"]
     stack = _merge_stack(DEFAULT_STACKS[language], (tenant.voice or {}).get(language, {}))
 
     return AgentConfig(
@@ -257,7 +263,8 @@ Ending the call:
         name=f"{tenant.brand_name} — {template.title}",
         language=language,
         system_prompt=system_prompt,
-        greeting=greeting.format(**values),
+        greeting=greeting,
+        greeting_audio=greeting_audio,
         stt=STTConfig(**stack["stt"]),
         llm=LLMConfig(**stack["llm"]),
         tts=TTSConfig(**stack["tts"]),

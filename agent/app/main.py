@@ -1,6 +1,8 @@
 """HTTP / WebSocket entry points.
 
-Merchant API: see app/api_v1.py (/v1/*, /admin/*).
+Merchant API: app/api_v1.py (/v1/*, /admin/*), accounts (/auth/*, team, API keys),
+integrations (Shopify, WooCommerce), voices (previews, recorded greetings) and
+telephony_routes (Plivo, Exotel). Twilio routes live here.
 
 Telephony
   POST /telephony/twilio/incoming   Twilio "A call comes in" webhook -> TwiML media stream
@@ -41,12 +43,16 @@ from pipecat.transports.smallwebrtc.transport import SmallWebRTCTransport
 from pipecat.transports.websocket.fastapi import FastAPIWebsocketParams, FastAPIWebsocketTransport
 from pydantic import BaseModel, Field
 
+from app.accounts import router as accounts_router
 from app.agent_config import AgentConfig, AgentNotFound, list_agents, load_agent
 from app.api_v1 import router as v1_router
 from app.bot import CallSession, run_call
 from app.context import deps, resolve_agent, service, settings
+from app.integrations import router as integrations_router
 from app.providers import missing_keys
 from app.telephony import reject_twiml, sign_stream_token, stream_twiml, verify_stream_token
+from app.telephony_routes import router as telephony_router
+from app.voices import router as voices_router
 
 STATIC_DIR = Path(__file__).parent / "static"
 webrtc_handler = SmallWebRTCRequestHandler()
@@ -74,7 +80,8 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(title="Dialyn — AI Calling API", lifespan=lifespan)
-app.include_router(v1_router)
+for router in (accounts_router, v1_router, integrations_router, voices_router, telephony_router):
+    app.include_router(router)
 
 
 def require_api_key(x_api_key: str = Header(default="")) -> None:

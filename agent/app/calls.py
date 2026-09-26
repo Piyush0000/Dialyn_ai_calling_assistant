@@ -27,6 +27,7 @@ from app.telephony import sign_stream_token, stream_twiml
 FINAL_STATUSES = ("completed", "transferred", "unreachable", "failed", "canceled")
 WEBHOOK_ATTEMPTS = 3
 WEB_TEST_TOKEN_TTL_SECS = 3600
+CALLBACK_TOKEN_TTL_SECS = 2 * 3600
 
 
 # ------------------------------------------------------------------ API keys
@@ -121,30 +122,55 @@ class CallService:
 
     async def dial(self, call: Call, tenant: Tenant) -> None:
         settings = self.deps.settings
-        from_number = tenant.from_number or settings.twilio_phone_number
+        provider = call.provider if call.provider in ("twilio", "plivo", "exotel") else "twilio"
+        default_from = {
+            "twilio": settings.twilio_phone_number,
+            "plivo": settings.plivo_phone_number,
+            "exotel": settings.exotel_caller_id,
+        }[provider]
+        from_number = tenant.from_number or default_from
         await self.deps.store.update(
             call.id,
             status="dialing",
             attempts=call.attempts + 1,
             from_number=from_number,
-            log=f"dialing attempt {call.attempts + 1}",
+            log=f"dialing attempt {call.attempts + 1} via {provider}",
         )
-        twiml = stream_twiml(
-            settings.twilio_stream_url,
-            {
-                "call_id": call.id,
-                "token": sign_stream_token(settings.stream_signing_secret, call.id),
-                "from_number": from_number,
-                "to_number": call.to_number or "",
-            },
+        base = settings.public_base_url
+        # Callbacks can arrive long after dialing (ringing + the whole call).
+        token = sign_stream_token(
+            settings.stream_signing_secret, call.id, ttl_secs=CALLBACK_TOKEN_TTL_SECS
         )
         try:
-            sid = await self.deps.twilio.place_call(
-                to=call.to_number,
-                from_=from_number,
-                twiml=twiml,
-                status_callback=f"{settings.public_base_url}/telephony/twilio/status",
-            )
+            if provider == "plivo":
+                sid = await self.deps.telephony["plivo"].place_call(
+                    to=call.to_number,
+                    from_=from_number,
+                    answer_url=f"{base}/telephony/plivo/answer/{call.id}?token={token}",
+                    hangup_url=f"{base}/telephony/plivo/hangup/{call.id}?token={token}",
+                )
+            elif provider == "exotel":
+                sid = await self.deps.telephony["exotel"].place_call(
+                    to=call.to_number,
+                    caller_id=from_number,
+                    status_callback=f"{base}/telephony/exotel/status/{call.id}?token={token}",
+                    call_id=call.id,
+                )
+            else:
+                sid = await self.deps.twilio.place_call(
+                    to=call.to_number,
+                    from_=from_number,
+                    twiml=stream_twiml(
+                        settings.twilio_stream_url,
+                        {
+                            "call_id": call.id,
+                            "token": sign_stream_token(settings.stream_signing_secret, call.id),
+                            "from_number": from_number,
+                            "to_number": call.to_number or "",
+                        },
+                    ),
+                    status_callback=f"{base}/telephony/twilio/status",
+                )
         except Exception as e:
             logger.warning(f"[{call.id}] dial failed: {e}")
             await self.attempt_failed(call.id, f"dial_error: {e}"[:120])
