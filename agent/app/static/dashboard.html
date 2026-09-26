@@ -1,0 +1,548 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Dialyn Dashboard</title>
+<style>
+  :root {
+    color-scheme: light;
+    --page: #f9f9f7; --surface: #fcfcfb; --raised: #ffffff; --line: #e1e0d9; --axis: #c3c2b7;
+    --ink: #0b0b0b; --ink-2: #52514e; --muted: #898781;
+    --accent: #1f6f5c; --accent-ink: #ffffff; --accent-soft: #e6f0ec;
+    --series-1: #2a78d6;
+    --good: #0ca30c; --warning: #fab219; --serious: #ec835a; --critical: #d03b3b;
+    --user-bubble: #eef1f8; --agent-bubble: #eef5f1;
+    --radius: 12px;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:where(:not([data-theme="light"])) {
+      color-scheme: dark;
+      --page: #0d0d0d; --surface: #1a1a19; --raised: #1f1f1d; --line: #2c2c2a; --axis: #383835;
+      --ink: #ffffff; --ink-2: #c3c2b7; --muted: #898781;
+      --accent: #4fb899; --accent-ink: #0b1b16; --accent-soft: #1b2b26;
+      --series-1: #3987e5;
+      --user-bubble: #22252e; --agent-bubble: #1c2723;
+    }
+  }
+  :root[data-theme="dark"] {
+    color-scheme: dark;
+    --page: #0d0d0d; --surface: #1a1a19; --raised: #1f1f1d; --line: #2c2c2a; --axis: #383835;
+    --ink: #ffffff; --ink-2: #c3c2b7; --muted: #898781;
+    --accent: #4fb899; --accent-ink: #0b1b16; --accent-soft: #1b2b26;
+    --series-1: #3987e5;
+    --user-bubble: #22252e; --agent-bubble: #1c2723;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--page); color: var(--ink);
+    font: 14px/1.5 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
+  a { color: var(--accent); }
+  button, input, select, textarea { font: inherit; color: inherit; }
+  .app { display: grid; grid-template-columns: 220px 1fr; min-height: 100vh; }
+  nav.side { border-right: 1px solid var(--line); padding: 20px 12px; position: sticky; top: 0;
+    height: 100vh; display: flex; flex-direction: column; gap: 4px; background: var(--surface); }
+  .brand { font-weight: 700; font-size: 17px; padding: 4px 10px 16px; letter-spacing: -0.01em; }
+  .brand small { display: block; font-weight: 500; font-size: 12px; color: var(--muted); }
+  nav.side a { text-decoration: none; color: var(--ink-2); padding: 8px 10px; border-radius: 8px; }
+  nav.side a.active, nav.side a:hover { background: var(--accent-soft); color: var(--ink); }
+  nav.side .spacer { flex: 1; }
+  nav.side button.link { background: none; border: 0; text-align: left; padding: 8px 10px; color: var(--muted); cursor: pointer; }
+  main { padding: 28px 28px 60px; max-width: 1180px; width: 100%; }
+  @media (max-width: 820px) {
+    .app { grid-template-columns: 1fr; }
+    nav.side { position: static; height: auto; flex-direction: row; flex-wrap: wrap; border-right: 0;
+      border-bottom: 1px solid var(--line); padding: 10px 12px; }
+    .brand { padding: 4px 10px; width: 100%; } nav.side .spacer { display: none; }
+    main { padding: 20px 16px 48px; }
+  }
+  h1 { font-size: 22px; margin: 0 0 4px; letter-spacing: -0.01em; }
+  .sub { color: var(--muted); margin: 0 0 20px; }
+  .row { display: flex; gap: 12px; flex-wrap: wrap; align-items: center; }
+  .grid { display: grid; gap: 16px; }
+  .cols-4 { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+  .cols-2 { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .cols-detail { grid-template-columns: 340px minmax(0, 1fr); }
+  @media (max-width: 980px) { .cols-4 { grid-template-columns: repeat(2, minmax(0, 1fr)); } .cols-detail, .cols-2 { grid-template-columns: 1fr; } }
+  .card { background: var(--raised); border: 1px solid var(--line); border-radius: var(--radius); padding: 18px; min-width: 0; }
+  .card h2 { font-size: 12px; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); margin: 0 0 12px; font-weight: 600; }
+  .stat .value { font-size: 28px; font-weight: 650; letter-spacing: -0.02em; font-variant-numeric: tabular-nums; }
+  .stat .label { color: var(--ink-2); }
+  .stat .hint { color: var(--muted); font-size: 12px; }
+  .btn { border: 1px solid var(--line); background: var(--raised); border-radius: 999px; padding: 8px 16px; cursor: pointer; font-weight: 600; }
+  .btn.primary { background: var(--accent); color: var(--accent-ink); border-color: transparent; }
+  .btn.danger { color: var(--critical); }
+  .btn:disabled { opacity: .5; cursor: default; }
+  input, select, textarea { background: var(--surface); border: 1px solid var(--line); border-radius: 8px; padding: 8px 10px; width: 100%; }
+  textarea { min-height: 90px; font-family: ui-monospace, SFMono-Regular, Consolas, monospace; font-size: 13px; }
+  label.field { display: grid; gap: 4px; color: var(--ink-2); font-size: 13px; }
+  label.field .help { color: var(--muted); font-size: 12px; }
+  .form-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px; }
+  .form-grid .full { grid-column: 1 / -1; }
+  @media (max-width: 640px) { .form-grid { grid-template-columns: 1fr; } }
+  .table-wrap { overflow-x: auto; border: 1px solid var(--line); border-radius: var(--radius); background: var(--raised); }
+  table { border-collapse: collapse; width: 100%; min-width: 760px; }
+  th, td { text-align: left; padding: 10px 12px; border-bottom: 1px solid var(--line); vertical-align: top; }
+  th { font-size: 12px; color: var(--muted); font-weight: 600; text-transform: uppercase; letter-spacing: .04em; background: var(--surface); }
+  tbody tr { cursor: pointer; } tbody tr:hover { background: var(--accent-soft); }
+  tbody tr:last-child td { border-bottom: 0; }
+  td .muted, .muted { color: var(--muted); }
+  .num { font-variant-numeric: tabular-nums; }
+  .status { display: inline-flex; align-items: center; gap: 6px; white-space: nowrap; }
+  .status::before { content: ""; width: 8px; height: 8px; border-radius: 50%; background: var(--muted); }
+  .status.good::before { background: var(--good); } .status.critical::before { background: var(--critical); }
+  .status.serious::before { background: var(--serious); } .status.live::before { background: var(--series-1); }
+  .chip { display: inline-block; background: var(--accent-soft); color: var(--ink); border-radius: 999px; padding: 2px 10px; font-size: 12px; font-weight: 600; white-space: nowrap; }
+  .empty { color: var(--muted); text-align: center; padding: 32px 12px; }
+  /* charts */
+  .chart { position: relative; }
+  .chart svg { display: block; width: 100%; height: auto; overflow: visible; }
+  .chart .grid-line { stroke: var(--line); stroke-width: 1; }
+  .chart .baseline { stroke: var(--axis); stroke-width: 1; }
+  .chart .tick { fill: var(--muted); font-size: 11px; }
+  .chart .bar { fill: var(--series-1); }
+  .chart .bar.hover { opacity: .8; }
+  .tooltip { position: absolute; pointer-events: none; background: var(--raised); border: 1px solid var(--line);
+    border-radius: 8px; padding: 6px 10px; font-size: 12px; box-shadow: 0 4px 16px rgba(0,0,0,.12); white-space: nowrap; z-index: 2; }
+  .tooltip strong { display: block; }
+  .hbars { display: grid; gap: 8px; }
+  .hbar { display: grid; grid-template-columns: minmax(110px, 38%) 1fr 36px; gap: 10px; align-items: center; }
+  .hbar .name { color: var(--ink-2); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .hbar .track { height: 10px; background: var(--surface); border-radius: 4px; overflow: hidden; }
+  .hbar .fill { height: 100%; background: var(--series-1); border-radius: 0 4px 4px 0; min-width: 2px; }
+  .hbar .count { text-align: right; font-variant-numeric: tabular-nums; color: var(--ink); }
+  /* detail */
+  dl.facts { margin: 0; display: grid; grid-template-columns: auto 1fr; gap: 6px 14px; }
+  dl.facts dt { color: var(--muted); } dl.facts dd { margin: 0; overflow-wrap: anywhere; }
+  .transcript { display: flex; flex-direction: column; gap: 8px; max-height: 520px; overflow-y: auto; }
+  .msg { padding: 9px 12px; border-radius: 12px; max-width: 85%; }
+  .msg.user { background: var(--user-bubble); align-self: flex-end; }
+  .msg.assistant { background: var(--agent-bubble); align-self: flex-start; }
+  .msg small { display: block; color: var(--muted); font-size: 11px; margin-bottom: 2px; }
+  ul.timeline { list-style: none; margin: 0; padding: 0; }
+  ul.timeline li { display: grid; grid-template-columns: 88px 1fr; gap: 8px; padding: 6px 0; border-bottom: 1px dashed var(--line); font-size: 13px; }
+  ul.timeline time { color: var(--muted); font-variant-numeric: tabular-nums; }
+  pre.code { background: var(--surface); border: 1px solid var(--line); border-radius: 8px; padding: 12px; overflow-x: auto; font-size: 12.5px; margin: 0; }
+  .notice { background: var(--accent-soft); border-radius: 8px; padding: 10px 12px; }
+  .error { color: var(--critical); }
+  .login { max-width: 420px; margin: 12vh auto; padding: 0 16px; }
+  .login .card { padding: 24px; }
+  audio { width: 100%; }
+  .toast { position: fixed; bottom: 20px; left: 50%; transform: translateX(-50%); background: var(--ink); color: var(--page);
+    padding: 10px 16px; border-radius: 999px; z-index: 10; }
+</style>
+</head>
+<body>
+<div id="root"></div>
+<div id="toast" class="toast" hidden></div>
+<script>
+"use strict";
+// ------------------------------------------------------------------ helpers
+const store = {
+  get(k) { try { return localStorage.getItem(k); } catch { return null; } },
+  set(k, v) { try { v == null ? localStorage.removeItem(k) : localStorage.setItem(k, v); } catch {} },
+};
+let apiKey = store.get("dialyn_api_key");
+let account = null, events = [], refreshTimer = null;
+
+function h(tag, attrs = {}, ...children) {
+  const el = document.createElement(tag);
+  for (const [k, v] of Object.entries(attrs || {})) {
+    if (v == null || v === false) continue;
+    if (k === "class") el.className = v;
+    else if (k.startsWith("on")) el.addEventListener(k.slice(2), v);
+    else if (k === "html") throw new Error("no raw html");
+    else el.setAttribute(k, v === true ? "" : v);
+  }
+  for (const c of children.flat()) if (c != null && c !== false) el.append(c instanceof Node ? c : String(c));
+  return el;
+}
+const svgNS = "http://www.w3.org/2000/svg";
+function s(tag, attrs = {}) { const el = document.createElementNS(svgNS, tag); for (const [k, v] of Object.entries(attrs)) el.setAttribute(k, v); return el; }
+const label = (v) => (v || "").replaceAll("_", " ");
+const fmtDur = (x) => x == null ? "—" : x < 60 ? `${Math.round(x)}s` : `${Math.floor(x / 60)}m ${Math.round(x % 60)}s`;
+const fmtTime = (iso) => iso ? new Date(iso).toLocaleString([], { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" }) : "—";
+function toast(msg) { const t = document.getElementById("toast"); t.textContent = msg; t.hidden = false; clearTimeout(toast.t); toast.t = setTimeout(() => (t.hidden = true), 2600); }
+
+const STATUS_TONE = {
+  completed: "good", transferred: "good", unreachable: "critical", failed: "critical",
+  busy: "serious", no_answer: "serious", canceled: "", scheduled: "", waiting_for_browser: "live",
+  dialing: "live", ringing: "live", in_progress: "live", queued: "",
+};
+const statusEl = (st) => h("span", { class: `status ${STATUS_TONE[st] ?? ""}` }, label(st));
+
+async function api(path, opts = {}) {
+  const res = await fetch(path, {
+    ...opts,
+    headers: { "Authorization": `Bearer ${apiKey}`, ...(opts.body ? { "Content-Type": "application/json" } : {}), ...(opts.headers || {}) },
+  });
+  if (res.status === 401) { signOut(); throw new Error("Your API key is invalid."); }
+  const data = res.headers.get("content-type")?.includes("json") ? await res.json() : null;
+  if (!res.ok) {
+    const detail = data?.detail;
+    throw new Error(Array.isArray(detail) ? detail.map(d => `${d.loc?.slice(-1)[0]}: ${d.msg}`).join("; ") : detail || `Request failed (${res.status})`);
+  }
+  return data;
+}
+
+// ------------------------------------------------------------------ shell
+function signOut() { apiKey = null; account = null; store.set("dialyn_api_key", null); location.hash = ""; render(); }
+
+function renderLogin(error) {
+  const input = h("input", { type: "password", placeholder: "sk_live_…", autocomplete: "off", "aria-label": "API key" });
+  const err = h("p", { class: "error" }, error || "");
+  const form = h("form", { class: "grid", onsubmit: async (e) => {
+    e.preventDefault(); apiKey = input.value.trim();
+    try { account = await api("/v1/account"); store.set("dialyn_api_key", apiKey); location.hash = "#/overview"; render(); }
+    catch (x) { apiKey = null; err.textContent = x.message; }
+  } }, h("label", { class: "field" }, "Store API key", input,
+      h("span", { class: "help" }, "Created by the platform admin (POST /admin/tenants). It stays in this browser only.")),
+    h("button", { class: "btn primary", type: "submit" }, "Sign in"), err);
+  document.getElementById("root").replaceChildren(h("div", { class: "login" },
+    h("h1", {}, "Dialyn"), h("p", { class: "sub" }, "AI calling for your store's orders"), h("div", { class: "card" }, form)));
+}
+
+const NAV = [["overview", "Overview"], ["calls", "Calls"], ["new", "New call"], ["settings", "Settings"], ["developers", "Developers"]];
+
+async function render() {
+  clearInterval(refreshTimer);
+  if (!apiKey) return renderLogin();
+  if (!account) { try { account = await api("/v1/account"); } catch (x) { return renderLogin(x.message); } }
+  if (!events.length) { try { events = (await api("/v1/events")).data; } catch {} }
+  const [route, param] = (location.hash.replace(/^#\//, "") || "overview").split("/");
+  const main = h("main", {}, h("p", { class: "muted" }, "Loading…"));
+  const nav = h("nav", { class: "side" },
+    h("div", { class: "brand" }, "Dialyn", h("small", {}, account.brand_name)),
+    ...NAV.map(([k, t]) => h("a", { href: `#/${k}`, class: (route === k || (route === "call" && k === "calls")) ? "active" : "" }, t)),
+    h("div", { class: "spacer" }), h("button", { class: "link", onclick: signOut }, "Sign out"));
+  document.getElementById("root").replaceChildren(h("div", { class: "app" }, nav, main));
+  const pages = { overview: pageOverview, calls: pageCalls, call: pageCall, new: pageNew, settings: pageSettings, developers: pageDevelopers };
+  try { await (pages[route] || pageOverview)(main, param); }
+  catch (x) { main.replaceChildren(h("p", { class: "error" }, x.message)); }
+}
+window.addEventListener("hashchange", render);
+
+// ------------------------------------------------------------------ overview
+async function pageOverview(main) {
+  const draw = async () => {
+    const st = await api("/v1/stats?days=14");
+    const t = st.totals;
+    const pct = (x) => x == null ? "—" : `${Math.round(x * 100)}%`;
+    const outcomes = Object.entries(st.outcome).sort((a, b) => b[1] - a[1]);
+    const byEvent = Object.entries(st.event_type).sort((a, b) => b[1] - a[1]);
+    main.replaceChildren(
+      h("h1", {}, "Overview"), h("p", { class: "sub" }, `Last 14 days · times in ${account.timezone}`),
+      h("div", { class: "grid cols-4" },
+        statTile("Total calls", t.calls, `${t.pending} pending`),
+        statTile("Answer rate", pct(t.answer_rate), `${t.answered} of ${t.finished} finished calls`),
+        statTile("Avg. call length", fmtDur(t.avg_duration_secs), "answered calls"),
+        statTile("Outcomes recorded", Object.values(st.outcome).reduce((a, b) => a + b, 0), "confirmations, changes, cancels…")),
+      h("div", { class: "grid cols-2", style: "margin-top:16px" },
+        h("section", { class: "card" }, h("h2", {}, "Calls per day"), dailyChart(st.daily)),
+        h("section", { class: "card" }, h("h2", {}, "Outcomes"), hbars(outcomes, "No outcomes yet. They appear after answered calls."))),
+      h("div", { class: "grid cols-2", style: "margin-top:16px" },
+        h("section", { class: "card" }, h("h2", {}, "By event"), hbars(byEvent.map(([k, v]) => [eventTitle(k), v]), "No calls yet.")),
+        h("section", { class: "card" }, h("h2", {}, "By status"), hbars(Object.entries(st.status).sort((a, b) => b[1] - a[1]), "No calls yet."))),
+    );
+  };
+  await draw();
+  refreshTimer = setInterval(() => draw().catch(() => {}), 15000);
+}
+function statTile(name, value, hint) {
+  return h("section", { class: "card stat" }, h("div", { class: "label" }, name), h("div", { class: "value" }, value ?? "—"), h("div", { class: "hint" }, hint));
+}
+const eventTitle = (k) => events.find(e => e.event === k)?.title || label(k);
+
+function hbars(entries, emptyText) {
+  if (!entries.length) return h("p", { class: "empty" }, emptyText);
+  const max = Math.max(...entries.map(e => e[1]));
+  return h("div", { class: "hbars", role: "list" }, entries.map(([name, n]) =>
+    h("div", { class: "hbar", role: "listitem", title: `${label(name)}: ${n}` },
+      h("span", { class: "name" }, label(name)),
+      h("span", { class: "track" }, h("span", { class: "fill", style: `display:block;width:${(n / max) * 100}%` })),
+      h("span", { class: "count" }, n))));
+}
+
+function dailyChart(daily) {
+  const W = 560, H = 200, padL = 28, padB = 24, padT = 8;
+  const max = Math.max(1, ...daily.map(d => d.calls));
+  const step = niceStep(max), top = Math.ceil(max / step) * step;
+  const bw = (W - padL) / daily.length, barW = Math.max(4, bw - 6);
+  const y = (v) => padT + (H - padT - padB) * (1 - v / top);
+  const svg = s("svg", { viewBox: `0 0 ${W} ${H}`, role: "img", "aria-label": "Calls per day, last 14 days" });
+  for (let v = 0; v <= top; v += step) {
+    svg.append(s("line", { class: v ? "grid-line" : "baseline", x1: padL, x2: W, y1: y(v), y2: y(v) }));
+    const tx = s("text", { class: "tick", x: padL - 6, y: y(v) + 4, "text-anchor": "end" }); tx.textContent = v; svg.append(tx);
+  }
+  const wrap = h("div", { class: "chart" }, svg);
+  const tip = h("div", { class: "tooltip", hidden: true }); wrap.append(tip);
+  daily.forEach((d, i) => {
+    const x = padL + i * bw + (bw - barW) / 2, h0 = y(0) - y(d.calls);
+    if (d.calls) {
+      // Rounded top, square base anchored to the baseline.
+      const r = Math.min(4, barW / 2, h0);
+      svg.append(s("path", { class: "bar", d: `M${x},${y(0)} V${y(d.calls) + r} Q${x},${y(d.calls)} ${x + r},${y(d.calls)} H${x + barW - r} Q${x + barW},${y(d.calls)} ${x + barW},${y(d.calls) + r} V${y(0)} Z` }));
+    }
+    const date = new Date(d.date + "T00:00:00");
+    if (i % 2 === daily.length % 2 || daily.length <= 7) {
+      const tx = s("text", { class: "tick", x: x + barW / 2, y: H - 6, "text-anchor": "middle" });
+      tx.textContent = date.toLocaleDateString([], { day: "numeric", month: "short" }); svg.append(tx);
+    }
+    const hit = s("rect", { x: padL + i * bw, y: padT, width: bw, height: H - padT - padB, fill: "transparent" });
+    hit.addEventListener("mouseenter", () => {
+      tip.replaceChildren(h("strong", {}, date.toLocaleDateString([], { weekday: "short", day: "numeric", month: "short" })),
+        `${d.calls} call${d.calls === 1 ? "" : "s"} · ${d.answered} answered`);
+      tip.hidden = false;
+      const rect = svg.getBoundingClientRect(), scale = rect.width / W;
+      tip.style.left = `${Math.min(rect.width - 150, Math.max(0, (x + barW / 2) * scale - 60))}px`;
+      tip.style.top = `${Math.max(0, y(d.calls) * scale - 52)}px`;
+    });
+    hit.addEventListener("mouseleave", () => (tip.hidden = true));
+    svg.append(hit);
+  });
+  const total = daily.reduce((a, d) => a + d.calls, 0);
+  return total ? wrap : h("p", { class: "empty" }, "No calls in the last 14 days.");
+}
+function niceStep(max) { const raw = max / 4, p = 10 ** Math.floor(Math.log10(raw)); return [1, 2, 5, 10].map(m => m * p).find(v => v >= raw) || 1; }
+
+// ------------------------------------------------------------------ calls list
+async function pageCalls(main) {
+  const q = new URLSearchParams(location.hash.split("?")[1] || "");
+  const statusSel = h("select", { "aria-label": "Status" }, h("option", { value: "" }, "All statuses"),
+    ...Object.keys(STATUS_TONE).map(st => h("option", { value: st, selected: q.get("status") === st }, label(st))));
+  const eventSel = h("select", { "aria-label": "Event" }, h("option", { value: "" }, "All events"),
+    ...events.map(e => h("option", { value: e.event, selected: q.get("event") === e.event }, e.title)));
+  const orderIn = h("input", { placeholder: "Order ID", value: q.get("order_id") || "", "aria-label": "Order ID" });
+  const body = h("tbody");
+  const more = h("button", { class: "btn", hidden: true }, "Load more");
+  let offset = 0;
+  const apply = () => {
+    const p = new URLSearchParams();
+    if (statusSel.value) p.set("status", statusSel.value);
+    if (eventSel.value) p.set("event", eventSel.value);
+    if (orderIn.value.trim()) p.set("order_id", orderIn.value.trim());
+    location.hash = `#/calls${p.toString() ? "?" + p : ""}`;
+  };
+  statusSel.onchange = eventSel.onchange = apply;
+  orderIn.onkeydown = (e) => { if (e.key === "Enter") apply(); };
+
+  async function load(reset) {
+    if (reset) offset = 0;
+    const p = new URLSearchParams(q); p.set("limit", 50); p.set("offset", offset);
+    const { data } = await api(`/v1/calls?${p}`);
+    const rows = data.map(c => h("tr", { onclick: () => (location.hash = `#/call/${c.id}`), tabindex: 0,
+      onkeydown: (e) => { if (e.key === "Enter") location.hash = `#/call/${c.id}`; } },
+      h("td", {}, c.customer_name || "—", h("div", { class: "muted" }, c.to_number || c.channel)),
+      h("td", {}, eventTitle(c.event_type), h("div", { class: "muted" }, c.order_id || "")),
+      h("td", {}, statusEl(c.status)),
+      h("td", {}, c.outcome ? h("span", { class: "chip" }, label(c.outcome)) : h("span", { class: "muted" }, "—")),
+      h("td", { class: "num" }, `${c.attempts}/${c.max_attempts}`),
+      h("td", { class: "num" }, fmtDur(c.duration_secs)),
+      h("td", { class: "num" }, fmtTime(c.created_at))));
+    if (reset) body.replaceChildren(...rows); else body.append(...rows);
+    if (reset && !rows.length) body.replaceChildren(h("tr", {}, h("td", { colspan: 7, class: "empty" }, "No calls match these filters.")));
+    offset += data.length; more.hidden = data.length < 50;
+  }
+  more.onclick = () => load(false);
+  main.replaceChildren(
+    h("div", { class: "row", style: "justify-content:space-between" }, h("div", {}, h("h1", {}, "Calls"), h("p", { class: "sub" }, "Every call with its status, outcome and attempts.")),
+      h("a", { class: "btn primary", href: "#/new", style: "text-decoration:none" }, "New call")),
+    h("div", { class: "row", style: "margin-bottom:12px" }, h("div", { style: "width:180px" }, statusSel), h("div", { style: "width:220px" }, eventSel), h("div", { style: "width:180px" }, orderIn)),
+    h("div", { class: "table-wrap" }, h("table", {},
+      h("thead", {}, h("tr", {}, ...["Customer", "Event · order", "Status", "Outcome", "Attempts", "Length", "Created"].map(t => h("th", {}, t)))), body)),
+    h("div", { style: "margin-top:12px" }, more));
+  await load(true);
+  refreshTimer = setInterval(() => { if (offset <= 50) load(true).catch(() => {}); }, 10000);
+}
+
+// ------------------------------------------------------------------ call detail
+async function pageCall(main, id) {
+  let audioUrl = null, lastSnapshot = null;
+  const draw = async () => {
+    const c = await api(`/v1/calls/${id}`);
+    // Only re-render on real changes, so audio playback and scroll position survive polling.
+    const snapshot = JSON.stringify(c);
+    if (snapshot === lastSnapshot) return c;
+    lastSnapshot = snapshot;
+    const o = c.payload?.order || {};
+    const facts = [["Customer", c.customer_name], ["Phone", c.to_number], ["Language", c.language === "hi" ? "Hinglish" : "English"],
+      ["Order", o.id], ["Amount", o.amount != null ? `${o.amount} ${o.currency || ""}` : null],
+      ["Items", (o.items || []).map(i => `${i.quantity || 1} × ${i.name}`).join(", ")], ["Payment", o.payment_method],
+      ["Address", o.address], ["Delivery", o.expected_delivery], ["Courier", o.courier], ["Tracking", o.tracking_number],
+      ["Attempts", `${c.attempts} of ${c.max_attempts}`], ["Next attempt", ["scheduled"].includes(c.status) ? fmtTime(c.next_attempt_at) : null],
+      ["Length", c.duration_secs ? fmtDur(c.duration_secs) : null], ["Ended because", label(c.end_reason)], ["Webhook", c.webhook_status]];
+    const actions = h("div", { class: "row", style: "margin-top:14px" });
+    if (c.test_url) actions.append(h("a", { class: "btn primary", href: c.test_url, target: "_blank", rel: "noopener", style: "text-decoration:none" }, "Open test call"));
+    if (["scheduled", "waiting_for_browser"].includes(c.status)) actions.append(h("button", { class: "btn danger", onclick: async () => {
+      try { await api(`/v1/calls/${id}/cancel`, { method: "POST" }); toast("Call canceled"); draw(); } catch (x) { toast(x.message); } } }, "Cancel call"));
+
+    const recording = h("div", {}, h("p", { class: "muted" }, c.has_recording ? "Loading recording…" : "No recording (the call was not answered or recording is off)."));
+    const outcome = c.outcome
+      ? h("div", {}, h("span", { class: "chip" }, label(c.outcome)), ...Object.entries(c.outcome_data || {}).map(([k, v]) =>
+          h("p", { style: "margin:8px 0 0" }, h("strong", {}, `${label(k)}: `), String(v))))
+      : h("p", { class: "muted" }, "No outcome recorded yet.");
+    const transcript = (c.transcript || []).length
+      ? h("div", { class: "transcript" }, c.transcript.map(m => h("div", { class: `msg ${m.role}` }, h("small", {}, m.role === "user" ? "Customer" : "Agent"), m.text)))
+      : h("p", { class: "empty" }, "No conversation yet.");
+    const meta = Object.keys(c.metadata || {}).length ? h("section", { class: "card" }, h("h2", {}, "Your metadata"), h("pre", { class: "code" }, JSON.stringify(c.metadata, null, 2))) : null;
+
+    main.replaceChildren(
+      h("a", { href: "#/calls" }, "← All calls"),
+      h("div", { class: "row", style: "justify-content:space-between;margin:10px 0 18px" },
+        h("div", {}, h("h1", {}, `${eventTitle(c.event_type)} · ${c.customer_name || ""}`), h("p", { class: "sub", style: "margin:0" }, `Created ${fmtTime(c.created_at)} · ${c.channel === "web" ? "browser test" : "phone"}`)),
+        statusEl(c.status)),
+      h("div", { class: "grid cols-detail" },
+        h("div", { class: "grid", style: "align-content:start" },
+          h("section", { class: "card" }, h("h2", {}, "Outcome"), outcome),
+          h("section", { class: "card" }, h("h2", {}, "Details"), h("dl", { class: "facts" }, ...facts.filter(f => f[1]).flatMap(([k, v]) => [h("dt", {}, k), h("dd", {}, v)])), actions),
+          meta),
+        h("div", { class: "grid", style: "align-content:start" },
+          h("section", { class: "card" }, h("h2", {}, "Recording"), recording),
+          h("section", { class: "card" }, h("h2", {}, "Transcript"), transcript),
+          h("section", { class: "card" }, h("h2", {}, "Timeline"), h("ul", { class: "timeline" }, (c.timeline || []).map(t =>
+            h("li", {}, h("time", {}, new Date(t.at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" })), label(t.event))))))));
+
+    if (c.has_recording) {
+      try {
+        if (!audioUrl) {
+          const res = await fetch(`/v1/calls/${id}/recording`, { headers: { Authorization: `Bearer ${apiKey}` } });
+          if (!res.ok) throw new Error();
+          audioUrl = URL.createObjectURL(await res.blob());
+        }
+        recording.replaceChildren(h("audio", { controls: true, src: audioUrl }), h("p", { class: "muted", style: "margin:6px 0 0;font-size:12px" }, "Stereo: customer on the left, agent on the right."));
+      } catch { recording.replaceChildren(h("p", { class: "error" }, "Could not load the recording.")); }
+    }
+    return c;
+  };
+  const c = await draw();
+  if (!["completed", "transferred", "unreachable", "failed", "canceled"].includes(c.status)) {
+    refreshTimer = setInterval(async () => {
+      const latest = await draw().catch(() => null);
+      if (latest && ["completed", "transferred", "unreachable", "failed", "canceled"].includes(latest.status)) clearInterval(refreshTimer);
+    }, 3000);
+  }
+}
+
+// ------------------------------------------------------------------ new call
+async function pageNew(main) {
+  const f = (name, labelText, attrs = {}, help) => h("label", { class: `field ${attrs.full ? "full" : ""}` }, labelText,
+    attrs.tag === "select" ? h("select", { name }, ...attrs.options) : h("input", { name, ...attrs, full: null, tag: null }), help ? h("span", { class: "help" }, help) : null);
+  const eventOptions = events.map(e => h("option", { value: e.event }, e.title));
+  const out = h("div");
+  const form = h("form", { class: "card form-grid", onsubmit: async (e) => {
+    e.preventDefault();
+    const d = Object.fromEntries(new FormData(form));
+    const items = d.items.split(",").map(x => x.trim()).filter(Boolean).map(x => {
+      const m = x.match(/^(\d+)\s*[x×]\s*(.+)$/i); return m ? { quantity: +m[1], name: m[2] } : { quantity: 1, name: x };
+    });
+    const order = { id: d.order_id, items, payment_method: d.payment_method || undefined, address: d.address || undefined,
+      expected_delivery: d.expected_delivery || undefined, courier: d.courier || undefined };
+    if (d.amount) order.amount = Number(d.amount);
+    const body = { event: d.event, channel: d.channel, customer: { name: d.name, phone: d.phone, language: d.language }, order };
+    if (d.schedule_at) body.schedule_at = new Date(d.schedule_at).toISOString();
+    const btn = form.querySelector("button[type=submit]"); btn.disabled = true;
+    try {
+      const res = await api("/v1/calls", { method: "POST", body: JSON.stringify(body) });
+      out.replaceChildren(h("div", { class: "notice" },
+        d.channel === "web"
+          ? ["Test call ready. ", h("a", { href: res.test_url, target: "_blank", rel: "noopener" }, "Open it in a new tab"), " and click Start call. "]
+          : [`Call scheduled (${label(res.status)}). It will be dialed inside your calling hours. `],
+        h("a", { href: `#/call/${res.id}` }, "View call details")));
+    } catch (x) { out.replaceChildren(h("p", { class: "error" }, x.message)); }
+    finally { btn.disabled = false; }
+  } },
+    f("event", "Event", { tag: "select", options: eventOptions }),
+    f("channel", "Channel", { tag: "select", options: [h("option", { value: "web" }, "Browser test (free, no phone)"), h("option", { value: "phone" }, "Phone call")] }),
+    f("name", "Customer name", { required: true, value: "Piyush" }),
+    f("phone", "Customer phone", { required: true, value: "+919876543210", pattern: "^\\+[1-9]\\d{6,14}$" }, "E.164 format, e.g. +919876543210"),
+    f("language", "Language", { tag: "select", options: [h("option", { value: "en" }, "English"), h("option", { value: "hi" }, "Hinglish (needs SARVAM_API_KEY)")] }),
+    f("order_id", "Order ID", { required: true, value: "KK-" + Math.floor(10000 + Math.random() * 89999) }),
+    f("amount", "Amount (INR)", { type: "number", step: "0.01", value: "1499" }),
+    f("payment_method", "Payment method", { value: "Cash on delivery" }),
+    f("items", "Items", { value: "2 x Cotton Kurta", full: true }, "Comma separated, e.g. 2 x Cotton Kurta, 1 x Dupatta"),
+    f("address", "Delivery address", { value: "12 MG Road, Pune", full: true }),
+    f("expected_delivery", "Expected delivery", { value: "Monday" }),
+    f("courier", "Courier", { value: "" }),
+    f("schedule_at", "Call no earlier than", { type: "datetime-local" }, "Optional. Calls always wait for your calling hours."),
+    h("div", { class: "full row" }, h("button", { class: "btn primary", type: "submit" }, "Create call")),
+    h("div", { class: "full" }, out));
+  main.replaceChildren(h("h1", {}, "New call"), h("p", { class: "sub" }, "Try any order event. The browser test uses your mic, so no phone number is needed."), form);
+}
+
+// ------------------------------------------------------------------ settings
+async function pageSettings(main) {
+  account = await api("/v1/account");
+  const a = account;
+  const inp = (name, text, attrs = {}, help) => h("label", { class: `field ${attrs.full ? "full" : ""}` }, text,
+    h("input", { name, value: a[name] ?? "", ...attrs, full: null }), help ? h("span", { class: "help" }, help) : null);
+  const voice = h("textarea", { name: "voice" }, JSON.stringify(a.voice || {}, null, 2));
+  const msg = h("div", { class: "full" });
+  const form = h("form", { class: "card form-grid", onsubmit: async (e) => {
+    e.preventDefault();
+    const d = Object.fromEntries(new FormData(form));
+    const body = {};
+    for (const k of ["brand_name", "agent_name", "timezone", "call_window_start", "call_window_end"]) body[k] = d[k];
+    for (const k of ["max_attempts", "retry_delay_minutes", "max_concurrent_calls"]) body[k] = Number(d[k]);
+    for (const k of ["from_number", "support_number", "webhook_url"]) body[k] = d[k] || null;
+    body.default_language = d.default_language;
+    try { body.voice = JSON.parse(d.voice || "{}"); } catch { msg.replaceChildren(h("p", { class: "error" }, "Voice settings must be valid JSON.")); return; }
+    try { account = await api("/v1/account", { method: "PATCH", body: JSON.stringify(body) }); toast("Settings saved"); msg.replaceChildren(); }
+    catch (x) { msg.replaceChildren(h("p", { class: "error" }, x.message)); }
+  } },
+    inp("brand_name", "Brand name", { required: true }, "Said on every call: “… from <brand>”"),
+    inp("agent_name", "Agent name", { required: true }),
+    h("label", { class: "field" }, "Default language", h("select", { name: "default_language" },
+      h("option", { value: "en", selected: a.default_language === "en" }, "English"), h("option", { value: "hi", selected: a.default_language === "hi" }, "Hinglish"))),
+    inp("timezone", "Timezone", {}, "e.g. Asia/Kolkata"),
+    inp("call_window_start", "Calling hours start", { type: "time" }),
+    inp("call_window_end", "Calling hours end", { type: "time" }, "Same start and end = any time"),
+    inp("max_attempts", "Attempts per call", { type: "number", min: 1, max: 10 }),
+    inp("retry_delay_minutes", "Minutes between attempts", { type: "number", min: 1, max: 1440 }),
+    inp("max_concurrent_calls", "Max calls at once", { type: "number", min: 1, max: 500 }),
+    inp("from_number", "Caller ID (from number)", { placeholder: "+91…" }, "Your telephony number; empty = platform default"),
+    inp("support_number", "Human support number", { placeholder: "+91…" }, "Customers asking for a human are transferred here"),
+    inp("webhook_url", "Webhook URL", { type: "url", placeholder: "https://your-store.com/dialyn-webhook", full: true }, "Receives call.completed events, signed with your webhook secret"),
+    h("label", { class: "field full" }, "Voices per language (advanced)", voice,
+      h("span", { class: "help" }, 'Override providers, e.g. {"hi": {"tts": {"provider": "elevenlabs", "voice": "<cloned voice id>"}}}')),
+    h("div", { class: "full row" }, h("button", { class: "btn primary", type: "submit" }, "Save settings")), msg);
+  main.replaceChildren(h("h1", {}, "Settings"), h("p", { class: "sub" }, "How and when your customers are called."), form);
+}
+
+// ------------------------------------------------------------------ developers
+async function pageDevelopers(main) {
+  const base = location.origin;
+  const example = `curl -X POST ${base}/v1/calls \\
+  -H "Authorization: Bearer ${account.api_key_prefix}…" \\
+  -H "Content-Type: application/json" \\
+  -H "Idempotency-Key: order-KK-20931-cod" \\
+  -d '{
+    "event": "cod_verification",
+    "customer": {"name": "Piyush", "phone": "+919876543210", "language": "hi"},
+    "order": {"id": "KK-20931", "amount": 1499, "payment_method": "Cash on delivery",
+              "items": [{"name": "Cotton Kurta", "quantity": 2}], "address": "12 MG Road, Pune"},
+    "metadata": {"shop_order_id": 20931}
+  }'`;
+  const verify = `import hmac, hashlib
+
+def is_valid(body: bytes, signature_header: str, webhook_secret: str) -> bool:
+    expected = "sha256=" + hmac.new(webhook_secret.encode(), body, hashlib.sha256).hexdigest()
+    return hmac.compare_digest(expected, signature_header)`;
+  main.replaceChildren(
+    h("h1", {}, "Developers"), h("p", { class: "sub" }, "Connect your store in a few lines."),
+    h("div", { class: "grid" },
+      h("section", { class: "card" }, h("h2", {}, "Your API key"),
+        h("p", {}, "Key starting with ", h("code", {}, account.api_key_prefix), ". The full key and webhook secret were shown once when your store was created."),
+        h("p", { class: "muted" }, "Full reference: ", h("a", { href: "/docs", target: "_blank", rel: "noopener" }, "interactive API docs"))),
+      h("section", { class: "card" }, h("h2", {}, "Schedule a call"), h("pre", { class: "code" }, example)),
+      h("section", { class: "card" }, h("h2", {}, "Events and outcomes"),
+        h("div", { class: "table-wrap" }, h("table", {}, h("thead", {}, h("tr", {}, h("th", {}, "event"), h("th", {}, "What the agent does"), h("th", {}, "Outcomes"))),
+          h("tbody", {}, events.map(e => h("tr", { style: "cursor:default" }, h("td", {}, h("code", {}, e.event)), h("td", {}, e.goal),
+            h("td", {}, [...e.outcomes, "callback_requested", "wrong_number", "needs_human"].map(o => h("div", {}, h("code", {}, o)))))))))),
+      h("section", { class: "card" }, h("h2", {}, "Webhook"),
+        h("p", {}, "When a call finishes we POST ", h("code", {}, '{"type": "call.completed", "data": {…}}'), " to your webhook URL with an ", h("code", {}, "X-Signature"), " header. Verify it before trusting the body:"),
+        h("pre", { class: "code" }, verify))));
+}
+
+render();
+</script>
+</body>
+</html>

@@ -332,3 +332,21 @@ def test_always_open_and_overnight_windows():
     assert next_allowed_time(noon, "Asia/Kolkata", "20:00", "02:00") == datetime(
         2030, 1, 1, 14, 30, tzinfo=UTC
     )
+
+
+def test_stats_totals_and_daily_trend(client):
+    auth, _ = make_tenant(client, max_attempts=1)
+    create_call(client, auth)
+    create_call(client, auth, event="order_shipped", channel="web")
+    stats = client.get("/v1/stats?days=7", headers=auth).json()
+    assert stats["totals"]["calls"] == 2 and stats["totals"]["pending"] == 2
+    assert stats["totals"]["answer_rate"] is None  # nothing finished yet
+    assert len(stats["daily"]) == 7 and stats["daily"][-1]["calls"] == 2
+
+
+def test_dashboard_and_web_call_detail_link(client):
+    assert "Dialyn" in client.get("/dashboard").text
+    auth, _ = make_tenant(client)
+    call = create_call(client, auth, channel="web")
+    detail = client.get(f"/v1/calls/{call['id']}", headers=auth).json()
+    assert detail["test_url"].startswith(f"/test/{call['id']}?token=")

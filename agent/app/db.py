@@ -258,6 +258,16 @@ class CallStore:
                 out[field] = {str(k): v for k, v in result.all() if k is not None}
             return out
 
+    async def activity_since(self, tenant_id: str, since: datetime) -> list[tuple]:
+        """(created_at, status, duration_secs) for a tenant's calls created since ``since``."""
+        async with self._sessions() as session:
+            result = await session.execute(
+                select(Call.created_at, Call.status, Call.duration_secs).where(
+                    Call.tenant_id == tenant_id, Call.created_at >= since
+                )
+            )
+            return [(_as_utc(c), s, d) for c, s, d in result.all()]
+
 
 def _add_missing_columns(sync_conn) -> None:
     """Tiny forward-only migration: add columns introduced after a table was created.

@@ -1,89 +1,125 @@
-# Dialyn — AI Calling Assistant
+# Dialyn — AI Calling for E-commerce
 
 ![Python](https://img.shields.io/badge/python-3.12-blue)
 ![Pipecat](https://img.shields.io/badge/pipecat-1.11-purple)
 ![FastAPI](https://img.shields.io/badge/FastAPI-async-009688)
-![Status](https://img.shields.io/badge/status-phase%201-orange)
+![Status](https://img.shields.io/badge/status-beta-orange)
 
-A self-hostable, real-time voice AI calling agent that answers and places phone calls.
-It is inspired by [Dograh](https://www.dograh.com/) (an open-source alternative to Vapi and Retell)
-and built on **Pipecat 1.11** + **FastAPI**.
+An API that any e-commerce platform can plug into so that a natural-sounding voice agent calls its
+customers about their orders. The agent handles order confirmation, cash-on-delivery verification,
+payment success and failure, shipping updates and out-for-delivery calls. Every call is logged with
+its outcome, transcript, recording and timeline, and the result is sent back to the store's webhook.
 
-See **[ROADMAP.md](ROADMAP.md)** for the full plan. This repo currently covers Phase 1: the real-time core.
+Built on **Pipecat 1.11** + **FastAPI**, inspired by [Dograh](https://www.dograh.com/). See
+**[ROADMAP.md](ROADMAP.md)** for the plan.
 
-## What works now
+## How it works
 
-- Real-time cascade pipeline: Silero VAD → STT → LLM (with tools) → TTS, with barge-in (the caller can interrupt the agent)
-- Providers can be switched per agent: **STT** Deepgram / Sarvam · **LLM** OpenAI / Claude / Groq · **TTS** Cartesia / ElevenLabs / Sarvam
-- Twilio **inbound** calls and **outbound** calls (`POST /api/calls`)
-- **Browser test calls** over WebRTC at `http://localhost:7860/client/`, so you can test without a phone number
-- Tools: `end_call` and `transfer_call` (hands the caller to a human number)
-- Every call is stored with its transcript, end reason, duration and a stereo recording (caller on the left channel, agent on the right)
-- Security: Twilio signature validation, signed short-lived media-stream tokens, API-key-protected REST API
+```
+Store backend ──POST /v1/calls──► Dialyn ──(inside calling hours, with retries)──► customer's phone
+      ▲                                     real-time: listen → understand → speak (~0.8 s reply)
+      └──────── webhook: call.completed {outcome, transcript, timeline, …} ◄──┘
+```
+
+| Event (`event`) | What the agent does | Outcomes it records |
+|---|---|---|
+| `order_confirmation` | Confirms the order, items and address | `confirmed`, `cancel_requested`, `change_requested` |
+| `cod_verification` | Verifies a cash-on-delivery order before shipping | `confirmed`, `cancel_requested`, `change_requested`, `prepaid_requested` |
+| `payment_success` | Thanks the customer and confirms the payment | `acknowledged` |
+| `payment_failed` | Helps the customer retry or switch to COD | `will_retry_payment`, `switch_to_cod`, `cancel_requested` |
+| `order_shipped` | Shares courier and delivery date | `acknowledged`, `change_requested` |
+| `out_for_delivery` | Checks the customer is available, or captures a new time | `will_be_available`, `reschedule_requested`, `address_issue`, `cancel_requested` |
+
+Every event can also end with `callback_requested`, `wrong_number` or `needs_human`. The agent only
+states the order facts you send and never promises changes; it notes them for your team.
+
+Languages: `en` (English) and `hi` (Hinglish, using Sarvam's Indian voices).
+
+## Quick start
+
+```bash
+cd agent
+uv sync
+cp .env.example .env   # add DEEPGRAM_API_KEY + GROQ_API_KEY (free); SARVAM_API_KEY for Hinglish
+uv run uvicorn app.main:app --port 7860
+```
+
+On Windows PowerShell, use `curl.exe` (plain `curl` is a different command there), as below.
+
+**1. Create a merchant** (platform admin; `API_KEY` from `.env`):
+
+```bash
+curl.exe -X POST http://localhost:7860/admin/tenants -H "X-Admin-Key: <API_KEY>" -H "Content-Type: application/json" -d "{\"name\":\"Demo Store\",\"brand_name\":\"Kurta Kart\",\"agent_name\":\"Priya\"}"
+```
+
+The response contains the merchant's `api_key` (`sk_live_…`) and `webhook_secret`. They are shown only once.
+
+**2. Schedule a call.** Use `"channel": "web"` to test it in your browser without a phone:
+
+```bash
+curl.exe -X POST http://localhost:7860/v1/calls -H "Authorization: Bearer <sk_live_...>" -H "Content-Type: application/json" -d "{\"event\":\"cod_verification\",\"channel\":\"web\",\"customer\":{\"name\":\"Piyush\",\"phone\":\"+919876543210\",\"language\":\"en\"},\"order\":{\"id\":\"KK-20931\",\"amount\":1499,\"items\":[{\"name\":\"Cotton Kurta\",\"quantity\":2}],\"payment_method\":\"Cash on delivery\",\"address\":\"12 MG Road, Pune\"}}"
+```
+
+**3. Open the returned `test_url`** (e.g. `http://localhost:7860/test/<id>?token=…`) and click **Start call**.
+The page shows the live transcript, the outcome and the timeline.
+
+## Merchant dashboard
+
+Open http://localhost:7860/dashboard and sign in with the store's API key.
+
+- **Overview**: total calls, answer rate, average call length, calls per day, outcomes, event and status breakdowns
+- **Calls**: every call with status, outcome and attempts; filter by status, event or order ID
+- **Call detail**: outcome and notes, order facts, recording player, transcript, timeline, cancel, open browser test
+- **New call**: try any event in the browser (free) or schedule a real phone call
+- **Settings**: brand, agent name, language, calling hours, retries, concurrency, caller ID, support number, webhook, voices
+- **Developers**: API example, events and outcomes, webhook signature check
+
+## API reference
+
+Interactive docs: http://localhost:7860/docs
+
+| Method & path | Purpose |
+|---|---|
+| `POST /v1/calls` | Schedule a call. Optional `schedule_at`, `metadata`, `Idempotency-Key` header |
+| `GET /v1/calls?status=&event=&order_id=` | List calls |
+| `GET /v1/calls/{id}` | Status, attempts, outcome, transcript, timeline |
+| `GET /v1/calls/{id}/recording` | Stereo WAV (customer left, agent right) |
+| `POST /v1/calls/{id}/cancel` | Cancel before it is dialed |
+| `GET /v1/stats` | Counts by status / outcome / event |
+| `GET /v1/events` | Supported events and outcomes |
+| `GET/PATCH /v1/account` | Brand, agent name, calling hours, retries, concurrency, webhook, voices |
+
+**Calling hours and retries** (per merchant): calls only go out between `call_window_start` and
+`call_window_end` in the merchant's `timezone` (default 09:00–21:00 Asia/Kolkata). Busy or unanswered
+calls are retried after `retry_delay_minutes`, up to `max_attempts`, then marked `unreachable`.
+
+**Webhook**: when a call finishes, `POST <webhook_url>` receives
+`{"type": "call.completed", "data": {…call…}}` with header `X-Signature: sha256=<HMAC-SHA256(body, webhook_secret)>`.
+Verify the signature before trusting it.
+
+**Voices**: each merchant can override the provider per language through `voice` in `PATCH /v1/account`,
+e.g. `{"hi": {"tts": {"provider": "elevenlabs", "voice": "<voice id>"}}}` to use a cloned human voice.
+
+## Real phone calls (Twilio)
+
+1. Expose the server: `ngrok http 7860`, set `PUBLIC_HOST=<ngrok host>` and the `TWILIO_*` values in `.env`, then restart.
+2. Create calls with `"channel": "phone"` (the default). The scheduler dials them through Twilio.
+3. Inbound calls to your Twilio number: set its webhook to `POST https://<PUBLIC_HOST>/telephony/twilio/incoming`.
 
 ## Layout
 
 ```
 agent/
-  agents/*.yaml       agent definitions (prompt, greeting, voice, providers, tools)
-  app/main.py         HTTP + WebSocket routes (Twilio webhooks, media stream, REST, WebRTC)
-  app/bot.py          per-call Pipecat pipeline, tools, transcript, recording
-  app/providers.py    STT / LLM / TTS factory
-  app/telephony.py    TwiML, signature checks, stream tokens, dial / transfer / hang up
-  app/db.py           call records (SQLite dev / Postgres prod)
+  app/api_v1.py       merchant API (/v1/*) and admin (/admin/tenants)
+  app/calls.py        scheduler: calling hours, dialing, retries, signed webhooks
+  app/ecommerce.py    event templates → agent (prompt, greeting, outcomes, voices)
+  app/bot.py          real-time pipeline, tools (record_outcome, end_call, transfer_call)
+  app/main.py         Twilio webhooks + media stream, browser test page, WebRTC
+  app/db.py           merchants and calls (SQLite dev / Postgres prod)
+  app/static/         browser test-call page
+  agents/*.yaml       stand-alone YAML agents (e.g. the `free` demo agent)
   tests/              pytest suite
 ```
-
-## Free mode (no credit card, browser calls)
-
-The `free` agent ([agent/agents/free.yaml](agent/agents/free.yaml)) needs only two free accounts:
-
-| Stage | Service | Where to get a key |
-|---|---|---|
-| Speech-to-text + text-to-speech | Deepgram (free signup credit) | https://console.deepgram.com → API Keys |
-| LLM | Groq (free tier) | https://console.groq.com/keys |
-
-1. Put both keys in `agent/.env` and set `DEFAULT_AGENT_ID=free`.
-2. Run `uv run uvicorn app.main:app --port 7860` from `agent/`.
-3. Open http://localhost:7860/client/, allow the microphone and click **Connect**. Use headphones so the agent doesn't hear itself.
-
-If you want no text-to-speech account at all, set `tts.provider: kokoro` in the agent file. Kokoro runs on your own CPU,
-but it is slower: on a laptop it adds about 1–2 s before each reply.
-
-## Quick start (browser test, no phone number needed)
-
-```bash
-cd agent
-uv sync
-cp .env.example .env      # add at least DEEPGRAM_API_KEY, OPENAI_API_KEY, CARTESIA_API_KEY, API_KEY
-uv run uvicorn app.main:app --port 7860
-```
-
-Open http://localhost:7860/client/ and click **Connect**. Then view the transcript:
-
-```bash
-curl -H "X-API-Key: $API_KEY" http://localhost:7860/api/calls
-```
-
-## Real phone calls (Twilio)
-
-1. Expose the server publicly: `ngrok http 7860`. Set `PUBLIC_HOST=<your-ngrok-host>` in `.env` and restart the server.
-2. In the Twilio console, go to your number → *A call comes in* → Webhook `POST https://<PUBLIC_HOST>/telephony/twilio/incoming`
-   (add `?agent=hindi_sales` to route this number to a different agent).
-3. Call your number.
-
-Outbound call:
-
-```bash
-curl -X POST https://<PUBLIC_HOST>/api/calls \
-  -H "X-API-Key: $API_KEY" -H "Content-Type: application/json" \
-  -d '{"to": "+919876543210", "agent_id": "hindi_sales", "variables": {"customer_name": "Riya"}}'
-```
-
-## Adding an agent
-
-Copy `agent/agents/default.yaml` to `agent/agents/<id>.yaml` and edit it. Placeholders such as `{customer_name}`
-are filled from the outbound call's `variables`, falling back to the file's `defaults`.
 
 ## Tests
 

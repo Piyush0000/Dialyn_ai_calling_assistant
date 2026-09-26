@@ -6,6 +6,31 @@ conversations, take actions via tools, and report on every call.
 
 ---
 
+## 0. Product focus: e-commerce calling API (SaaS)
+
+Any store or e-commerce platform plugs in with an API key; Dialyn calls its customers about orders
+in a natural, human-sounding voice and reports the outcome back.
+
+**Done**
+- [x] Multi-merchant API: API keys, `/v1/calls`, idempotency, cancel, stats, per-merchant settings
+- [x] 6 order events: order confirmation, COD verification, payment success, payment failed, shipped, out for delivery
+- [x] Structured outcomes (`record_outcome` tool); the agent only states the facts it was sent and never promises changes
+- [x] Scheduler: per-merchant calling hours and timezone, retries on busy/no-answer, concurrency limits
+- [x] Signed webhooks (`call.completed`), full timeline, live transcript, stereo recording per call
+- [x] English (free stack) and Hinglish (Sarvam Indian voices); per-merchant voice override (e.g. ElevenLabs clone)
+- [x] Browser test page per call (`channel: "web"`), no phone needed
+
+**Next**
+- [ ] Merchant dashboard: API keys, call log with filters, transcript + recording player, outcome charts, settings
+- [ ] India telephony: Exotel / Plivo numbers (cheaper, local caller ID), DLT/TRAI compliance, DND scrubbing
+- [ ] Human voice: pre-recorded human clips for fixed lines (greeting, disclosure) + cloned voice for the rest
+- [ ] Plugins: Shopify app, WooCommerce plugin, Shiprocket/Delhivery status hooks → automatic calls
+- [ ] Actions: send the payment link / WhatsApp message during the call; update order status via merchant API
+- [ ] Billing: per-minute usage metering, plans, invoices
+- [ ] Voicemail / answering-machine detection; IVR-style DTMF fallback ("press 1 to confirm")
+
+---
+
 ## 1. What "industry-grade" means here (targets)
 
 | Area | Target |

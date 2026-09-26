@@ -14,9 +14,10 @@ Platform admin (``X-Admin-Key: <API_KEY from .env>``):
 """
 
 import secrets
-from datetime import datetime
+from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Any, Literal
+from zoneinfo import ZoneInfo
 
 from fastapi import APIRouter, Depends, Header, HTTPException, Query
 from fastapi.responses import FileResponse
@@ -183,7 +184,11 @@ async def _tenant_call(call_id: str, tenant: Tenant):
 
 @router.get("/v1/calls/{call_id}")
 async def get_call(call_id: str, tenant: Tenant = Depends(current_tenant)):
-    return public_call(await _tenant_call(call_id, tenant), include_transcript=True)
+    call = await _tenant_call(call_id, tenant)
+    data = public_call(call, include_transcript=True)
+    if call.channel == "web" and call.status == "waiting_for_browser":
+        data["test_url"] = _created(call)["test_url"]
+    return data
 
 
 @router.get("/v1/calls/{call_id}/recording")
@@ -216,9 +221,48 @@ async def list_events():
     }
 
 
+ANSWERED = ("completed", "transferred")
+FINISHED = (*ANSWERED, "unreachable", "failed")
+
+
 @router.get("/v1/stats")
-async def stats(tenant: Tenant = Depends(current_tenant)):
-    return await deps.store.stats(tenant.id)
+async def stats(tenant: Tenant = Depends(current_tenant), days: int = Query(default=14, le=90)):
+    """Breakdowns plus a daily trend (in the merchant's timezone) for the dashboard."""
+    counts = await deps.store.stats(tenant.id)
+    tz = ZoneInfo(tenant.timezone)
+    today = now_utc().astimezone(tz).date()
+    first_day = today - timedelta(days=days - 1)
+    since = datetime.combine(first_day, datetime.min.time(), tzinfo=tz)
+    rows = await deps.store.activity_since(tenant.id, since)
+
+    daily = {first_day + timedelta(days=i): {"calls": 0, "answered": 0} for i in range(days)}
+    durations = []
+    for created_at, status, duration in rows:
+        bucket = daily.get(created_at.astimezone(tz).date())
+        if bucket is not None:
+            bucket["calls"] += 1
+            bucket["answered"] += status in ANSWERED
+        if status in ANSWERED and duration:
+            durations.append(duration)
+
+    by_status = counts["status"]
+    finished = sum(by_status.get(s, 0) for s in FINISHED)
+    answered = sum(by_status.get(s, 0) for s in ANSWERED)
+    return {
+        **counts,
+        "totals": {
+            "calls": sum(by_status.values()),
+            "finished": finished,
+            "answered": answered,
+            "answer_rate": round(answered / finished, 3) if finished else None,
+            "avg_duration_secs": round(sum(durations) / len(durations), 1) if durations else None,
+            "pending": sum(
+                by_status.get(s, 0)
+                for s in ("scheduled", "dialing", "ringing", "in_progress", "waiting_for_browser")
+            ),
+        },
+        "daily": [{"date": d.isoformat(), **v} for d, v in daily.items()],
+    }
 
 
 @router.get("/v1/account")

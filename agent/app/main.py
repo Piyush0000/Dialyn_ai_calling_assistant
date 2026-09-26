@@ -11,6 +11,7 @@ Internal / testing (X-API-Key = platform admin key)
   POST /api/calls, GET /api/calls[/{id}], GET /api/agents   YAML-agent calls
 
 Browser
+  GET  /dashboard                   Merchant dashboard (sign in with an API key)
   GET  /test/{call_id}?token=       Browser test page for a merchant web call
   GET  /test/{call_id}/live?token=  Live status + transcript for that page
   POST /start, /sessions/{id}/api/offer   Prebuilt UI (/client/) signalling
@@ -290,6 +291,12 @@ async def _web_test_call(call_id: str, token: str):
     if call is None or not verify_stream_token(settings.stream_signing_secret, call_id, token):
         raise HTTPException(status_code=403, detail="Invalid or expired test link")
     return call
+
+
+@app.get("/dashboard", include_in_schema=False)
+async def dashboard():
+    # Static single-page app; it talks to /v1 with the merchant's API key.
+    return HTMLResponse((STATIC_DIR / "dashboard.html").read_text(encoding="utf-8"))
 
 
 @app.get("/test/{call_id}", include_in_schema=False)
