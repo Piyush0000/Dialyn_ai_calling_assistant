@@ -1,74 +1,59 @@
 #!/usr/bin/env bash
-# One-time Dialyn setup on a VPS that may also host other projects. Safe to re-run.
+# One-time Dialyn setup on a VPS that also hosts other projects. Safe to re-run.
 #
-# Everything lives in /opt/dialyn and runs as its own "dialyn" user. Other projects'
-# files, sites and services are never modified. Outside /opt/dialyn this script only:
-#   - installs git / curl / Docker / Nginx / Certbot if they are missing
-#   - creates the "dialyn" user (in the docker group) and a deploy SSH key for CI
-#   - adds ONE Nginx site file for your domain; reloads Nginx only if `nginx -t` passes
-#   - requests an HTTPS certificate for your domain only (Let's Encrypt)
-#   - opens UDP 40000-40199 in UFW if UFW is active (audio for browser calls)
+# Dialyn lives in /var/www/dialyn and runs as the PM2 app "dialyn" next to the
+# existing PM2 apps. Other projects' files, sites and PM2 apps are never modified.
+# This script only:
+#   - installs uv (Python package manager) for root if missing
+#   - clones the code into /var/www/dialyn and creates its settings file
+#   - starts the PM2 app "dialyn" on 127.0.0.1 (a free local port)
+#   - adds ONE Nginx site file for the domain; reloads Nginx only if `nginx -t` passes
+# Security-sensitive steps (firewall, HTTPS terms, CI key) are printed at the end for
+# the server owner to run.
 #
-# Usage, as root on the VPS:
-#   curl -fsSL https://raw.githubusercontent.com/Piyush0000/Dialyn_ai_calling_assistant/main/deploy/setup_vps.sh -o setup_vps.sh
-#   DEEPGRAM_API_KEY=... GROQ_API_KEY=... bash setup_vps.sh [domain] [email]
+# Usage, as root:  DEEPGRAM_API_KEY=... GROQ_API_KEY=... bash setup_vps.sh [domain]
 # domain defaults to <server-ip-with-dashes>.sslip.io (free, no DNS setup needed).
 set -euo pipefail
 
 REPO_URL=https://github.com/Piyush0000/Dialyn_ai_calling_assistant.git
-APP_DIR=/opt/dialyn
-APP_USER=dialyn
-UDP_FIRST=40000
-UDP_LAST=40199
+APP_DIR=/var/www/dialyn
+UDP_RANGE=40000-40199
 MARKER="managed by deploy/setup_vps.sh"
 
 step() { printf '\n==> %s\n' "$*"; }
 die() { printf '\nERROR: %s\n' "$*" >&2; exit 1; }
-as_app() { runuser -u "$APP_USER" -- "$@"; }
 
-[ "$(id -u)" = 0 ] || die "run as root (sudo bash $0 ...)"
+[ "$(id -u)" = 0 ] || die "run as root"
+export NVM_DIR="$HOME/.nvm"
+# shellcheck disable=SC1091
+[ -s "$NVM_DIR/nvm.sh" ] && . "$NVM_DIR/nvm.sh"
+command -v pm2 >/dev/null || die "pm2 not found (expected the existing PM2 setup)"
+command -v nginx >/dev/null || die "nginx not found"
 
 PUBLIC_IP=$(curl -fsS --max-time 10 https://api.ipify.org 2>/dev/null || hostname -I | awk '{print $1}')
 DOMAIN=${1:-${PUBLIC_IP//./-}.sslip.io}
-EMAIL=${2:-}
-step "Installing Dialyn for https://$DOMAIN into $APP_DIR (server IP $PUBLIC_IP)"
+step "Installing Dialyn for $DOMAIN into $APP_DIR"
 
-# ------------------------------------------------------------------ packages
-missing=()
-command -v git >/dev/null || missing+=(git)
-command -v curl >/dev/null || missing+=(curl)
-if ((${#missing[@]})); then
-  step "Installing ${missing[*]}"
-  apt-get update -qq && apt-get install -y -qq "${missing[@]}"
+# ------------------------------------------------------------------------ uv
+export PATH="$HOME/.local/bin:$PATH"
+if ! command -v uv >/dev/null; then
+  step "Installing uv"
+  curl -LsSf https://astral.sh/uv/install.sh | sh
 fi
-if ! command -v docker >/dev/null; then
-  step "Installing Docker (official get.docker.com script)"
-  curl -fsSL https://get.docker.com | sh
-fi
-docker compose version >/dev/null 2>&1 || die "the Docker Compose plugin is missing"
-
-# ---------------------------------------------------------------------- user
-if ! id "$APP_USER" >/dev/null 2>&1; then
-  step "Creating system user $APP_USER"
-  useradd --system --create-home --shell /bin/bash "$APP_USER"
-fi
-usermod -aG docker "$APP_USER"
-APP_HOME=$(getent passwd "$APP_USER" | cut -d: -f6)
 
 # ---------------------------------------------------------------------- code
 if [ -d "$APP_DIR/.git" ]; then
-  step "Updating code in $APP_DIR"
-  as_app git -C "$APP_DIR" fetch -q --depth 1 origin main
-  as_app git -C "$APP_DIR" reset -q --hard origin/main
+  step "Updating code"
+  git -C "$APP_DIR" fetch -q --depth 1 origin main
+  git -C "$APP_DIR" reset -q --hard origin/main
 elif [ -e "$APP_DIR" ]; then
-  die "$APP_DIR already exists and is not Dialyn; not touching it"
+  die "$APP_DIR exists and is not Dialyn; not touching it"
 else
-  step "Cloning code into $APP_DIR"
-  install -d -o "$APP_USER" -g "$APP_USER" "$APP_DIR"
-  as_app git clone -q --depth 1 --branch main "$REPO_URL" "$APP_DIR"
+  step "Cloning code"
+  git clone -q --depth 1 --branch main "$REPO_URL" "$APP_DIR"
 fi
 
-# ---------------------------------------------------------------- app config
+# ---------------------------------------------------------------- settings
 ENV_FILE=$APP_DIR/agent/.env
 set_env() {
   if grep -q "^$1=" "$ENV_FILE"; then sed -i "s|^$1=.*|$1=$2|" "$ENV_FILE"; else echo "$1=$2" >>"$ENV_FILE"; fi
@@ -85,37 +70,26 @@ if [ ! -f "$ENV_FILE" ]; then
   set_env TWILIO_PHONE_NUMBER ""
 fi
 set_env PUBLIC_HOST "$DOMAIN"
-set_env WEBRTC_UDP_PORTS "$UDP_FIRST-$UDP_LAST"
+set_env WEBRTC_UDP_PORTS "$UDP_RANGE"
 for key in DEEPGRAM_API_KEY GROQ_API_KEY SARVAM_API_KEY OPENAI_API_KEY ELEVENLABS_API_KEY CARTESIA_API_KEY \
   TWILIO_ACCOUNT_SID TWILIO_AUTH_TOKEN PLIVO_AUTH_ID PLIVO_AUTH_TOKEN; do
-  if [ -n "${!key:-}" ]; then set_env "$key" "${!key}"; echo "    set $key from the environment"; fi
+  if [ -n "${!key:-}" ]; then set_env "$key" "${!key}"; echo "    set $key"; fi
 done
-chown "$APP_USER:$APP_USER" "$ENV_FILE"
 chmod 600 "$ENV_FILE"
 
-# Pick a free local port once (the other projects keep theirs).
 PORT_FILE=$APP_DIR/deploy/.env
 if [ ! -f "$PORT_FILE" ]; then
   PORT=7860
   while ss -ltnH "( sport = :$PORT )" | grep -q .; do PORT=$((PORT + 1)); done
   echo "DIALYN_PORT=$PORT" >"$PORT_FILE"
-  chown "$APP_USER:$APP_USER" "$PORT_FILE"
 fi
 PORT=$(cut -d= -f2 "$PORT_FILE")
-step "Dialyn will listen on 127.0.0.1:$PORT (private; Nginx publishes it)"
 
-# -------------------------------------------------------------------- start
-step "Building and starting Dialyn (first build takes a few minutes)"
-as_app bash "$APP_DIR/deploy/deploy.sh"
+# ---------------------------------------------------------------- start app
+step "Installing dependencies and starting PM2 app 'dialyn' on 127.0.0.1:$PORT"
+bash "$APP_DIR/deploy/deploy.sh"
 
 # -------------------------------------------------------------------- nginx
-if ! command -v nginx >/dev/null; then
-  if ss -ltnH '( sport = :80 or sport = :443 )' | grep -q .; then
-    die "ports 80/443 are used by a web server that is not Nginx; point $DOMAIN at 127.0.0.1:$PORT there"
-  fi
-  step "Installing Nginx"
-  apt-get update -qq && apt-get install -y -qq nginx
-fi
 if [ -d /etc/nginx/sites-available ]; then
   SITE=/etc/nginx/sites-available/dialyn.conf
   LINK=/etc/nginx/sites-enabled/dialyn.conf
@@ -127,59 +101,38 @@ if [ -f "$SITE" ] && ! grep -q "$MARKER" "$SITE"; then
   die "$SITE exists but was not created by Dialyn; not touching it"
 fi
 if [ ! -f "$SITE" ]; then
-  step "Adding Nginx site $SITE for $DOMAIN"
+  step "Adding Nginx site $SITE"
   sed -e "s/__DOMAIN__/$DOMAIN/g" -e "s/__PORT__/$PORT/g" "$APP_DIR/deploy/nginx.conf.template" >"$SITE"
   [ -n "$LINK" ] && ln -sf "$SITE" "$LINK"
   if nginx -t; then
     systemctl reload nginx
   else
     rm -f "$SITE" ${LINK:+"$LINK"}
-    die "nginx -t failed, so Dialyn's site file was removed and Nginx was NOT reloaded"
+    die "nginx -t failed; Dialyn's site file was removed and Nginx was NOT reloaded"
   fi
-fi
-
-# ---------------------------------------------------------------------- https
-if ! grep -q "listen 443" "$SITE"; then
-  step "Requesting an HTTPS certificate for $DOMAIN"
-  command -v certbot >/dev/null || { apt-get update -qq && apt-get install -y -qq certbot python3-certbot-nginx; }
-  args=(--nginx -d "$DOMAIN" --non-interactive --agree-tos --redirect)
-  if [ -n "$EMAIL" ]; then args+=(-m "$EMAIL"); else args+=(--register-unsafely-without-email); fi
-  certbot "${args[@]}"
-fi
-
-# -------------------------------------------------------------------- firewall
-if command -v ufw >/dev/null && ufw status | grep -q "Status: active"; then
-  step "Allowing UDP $UDP_FIRST-$UDP_LAST in UFW (browser call audio)"
-  ufw allow "$UDP_FIRST:$UDP_LAST/udp" comment "Dialyn WebRTC audio"
-  ufw status | grep -qE "^(80|443|Nginx)" || echo "    note: make sure ports 80 and 443 are open in UFW"
-fi
-
-# ------------------------------------------------------------------ CI deploy key
-KEY=$APP_HOME/.ssh/github_actions
-if [ ! -f "$KEY" ]; then
-  step "Creating an SSH key GitHub Actions uses to deploy (user $APP_USER only)"
-  as_app mkdir -p "$APP_HOME/.ssh"
-  as_app ssh-keygen -q -t ed25519 -N "" -C "dialyn-github-actions" -f "$KEY"
-  as_app sh -c "cat '$KEY.pub' >> '$APP_HOME/.ssh/authorized_keys'"
-  chmod 700 "$APP_HOME/.ssh"
-  chmod 600 "$APP_HOME/.ssh/authorized_keys"
 fi
 
 cat <<EOF
 
 ============================================================
- Dialyn is running:  https://$DOMAIN/dashboard
+ Dialyn is running under PM2 as "dialyn" (pm2 list).
+ http://$DOMAIN/dashboard  (HTTPS after step 2 below)
 ============================================================
- App folder:   $APP_DIR          (runs as user "$APP_USER")
- Settings:     $ENV_FILE
- Admin key:    grep ^API_KEY= $ENV_FILE
+ Folder:    $APP_DIR
+ Settings:  $ENV_FILE   (admin key: grep ^API_KEY= $ENV_FILE)
+ Logs:      pm2 logs dialyn
 
- Add missing provider keys (e.g. DEEPGRAM_API_KEY, GROQ_API_KEY) to the
- settings file, then restart:  runuser -u $APP_USER -- bash $APP_DIR/deploy/deploy.sh
+ Finish as the server owner (these change security settings):
 
- GitHub Actions (auto-deploy on every push to main): in the GitHub repo go to
- Settings -> Secrets and variables -> Actions and add
-   VPS_HOST     = $PUBLIC_IP
-   VPS_USER     = $APP_USER
-   VPS_SSH_KEY  = the output of:  cat $KEY
+ 1) Allow audio for browser calls through the firewall:
+      ufw allow ${UDP_RANGE/-/:}/udp comment 'Dialyn WebRTC audio'
+
+ 2) HTTPS certificate for $DOMAIN (you accept Let's Encrypt's terms):
+      certbot --nginx -d $DOMAIN --redirect
+
+ 3) Auto-deploy from GitHub: create a key that can ONLY run the deploy script:
+      ssh-keygen -q -t ed25519 -N "" -C dialyn-github-actions -f /root/.ssh/dialyn_github_actions
+      echo "command=\"bash $APP_DIR/deploy/deploy.sh\",no-port-forwarding,no-agent-forwarding,no-X11-forwarding,no-pty \$(cat /root/.ssh/dialyn_github_actions.pub)" >> /root/.ssh/authorized_keys
+    then add GitHub repo secrets (Settings -> Secrets and variables -> Actions):
+      VPS_HOST=$PUBLIC_IP   VPS_USER=root   VPS_SSH_KEY=<output of: cat /root/.ssh/dialyn_github_actions>
 EOF

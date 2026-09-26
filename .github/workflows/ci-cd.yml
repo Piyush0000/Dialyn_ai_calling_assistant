@@ -44,4 +44,4 @@ jobs:
           username: ${{ secrets.VPS_USER }}
           key: ${{ secrets.VPS_SSH_KEY }}
           command_timeout: 30m
-          script: bash /opt/dialyn/deploy/deploy.sh
+          script: bash /var/www/dialyn/deploy/deploy.sh
