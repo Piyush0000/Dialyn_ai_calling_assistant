@@ -353,3 +353,10 @@ def test_dashboard_and_web_call_detail_link(client):
     call = create_call(client, auth, channel="web")
     detail = client.get(f"/v1/calls/{call['id']}", headers=auth).json()
     assert detail["test_url"].startswith(f"/test/{call['id']}?token=")
+
+
+def test_pages_use_versioned_assets(client):
+    for path in ("/", "/dashboard"):
+        html = client.get(path).text
+        assert "/assets/theme.css?v=" in html and "/assets/avatar.js?v=" in html
+    assert client.get("/assets/avatar.js").status_code == 200

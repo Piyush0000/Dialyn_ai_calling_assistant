@@ -21,6 +21,7 @@ Browser
 """
 
 import asyncio
+import re
 import secrets
 import uuid
 from collections import OrderedDict
@@ -28,7 +29,8 @@ from contextlib import asynccontextmanager, suppress
 from pathlib import Path
 
 from fastapi import Depends, FastAPI, Header, HTTPException, Request, WebSocket
-from fastapi.responses import HTMLResponse, RedirectResponse, Response
+from fastapi.responses import HTMLResponse, Response
+from fastapi.staticfiles import StaticFiles
 from loguru import logger
 from pipecat.runner.utils import parse_telephony_websocket
 from pipecat.serializers.twilio import TwilioFrameSerializer
@@ -131,6 +133,18 @@ def _stream_twiml_for(call_id: str, from_number: str, to_number: str) -> str:
             "to_number": to_number,
         },
     )
+
+
+def _page(name: str) -> HTMLResponse:
+    """Serve a static page with versioned asset URLs, so browsers never run stale CSS/JS."""
+    html = (STATIC_DIR / name).read_text(encoding="utf-8")
+
+    def versioned(match: re.Match) -> str:
+        asset = STATIC_DIR / match.group(1)
+        version = int(asset.stat().st_mtime) if asset.is_file() else 0
+        return f"/assets/{match.group(1)}?v={version}"
+
+    return HTMLResponse(re.sub(r"/assets/([\w.-]+\.(?:css|js))", versioned, html))
 
 
 def _spawn(coro) -> None:
@@ -308,13 +322,13 @@ async def _web_test_call(call_id: str, token: str):
 @app.get("/dashboard", include_in_schema=False)
 async def dashboard():
     # Static single-page app; it talks to /v1 with the merchant's API key.
-    return HTMLResponse((STATIC_DIR / "dashboard.html").read_text(encoding="utf-8"))
+    return _page("dashboard.html")
 
 
 @app.get("/test/{call_id}", include_in_schema=False)
 async def test_page(call_id: str, token: str):
     await _web_test_call(call_id, token)
-    return HTMLResponse((STATIC_DIR / "test_call.html").read_text(encoding="utf-8"))
+    return _page("test_call.html")
 
 
 @app.get("/test/{call_id}/live", include_in_schema=False)
@@ -428,12 +442,15 @@ try:
     from pipecat_ai_prebuilt.frontend import PipecatPrebuiltUI
 
     app.mount("/client", PipecatPrebuiltUI)
-
-    @app.get("/", include_in_schema=False)
-    async def root():
-        return RedirectResponse(url="/client/")
 except ImportError:  # prebuilt UI is optional
     pass
+
+app.mount("/assets", StaticFiles(directory=STATIC_DIR), name="assets")
+
+
+@app.get("/", include_in_schema=False)
+async def landing():
+    return _page("landing.html")
 
 
 def run() -> None:

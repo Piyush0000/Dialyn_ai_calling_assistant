@@ -1,0 +1,97 @@
+/* Dialyn design tokens + shared components (landing, call page, dashboard). Dark-first. */
+:root {
+  color-scheme: dark;
+  --bg: #07060f;
+  --bg-2: #0d0b1c;
+  --glass: rgba(255, 255, 255, 0.045);
+  --glass-strong: rgba(22, 18, 44, 0.72);
+  --line: rgba(255, 255, 255, 0.08);
+  --line-strong: rgba(255, 255, 255, 0.14);
+  --ink: #f5f3ff;
+  --ink-2: #b9b4d6;
+  --muted: #7d7899;
+  --violet: #8b5cf6;
+  --pink: #ec4899;
+  --cyan: #22d3ee;
+  --grad: linear-gradient(120deg, #a78bfa 0%, #ec4899 55%, #f59e0b 110%);
+  --grad-cool: linear-gradient(120deg, #22d3ee, #8b5cf6);
+  --good: #34d399;
+  --warning: #fbbf24;
+  --serious: #fb923c;
+  --critical: #f87171;
+  --series-1: #3987e5;
+  --radius: 18px;
+  --shadow: 0 20px 60px -20px rgba(0, 0, 0, 0.7), 0 0 0 1px rgba(255, 255, 255, 0.02) inset;
+  --display: "Space Grotesk", "Inter", system-ui, sans-serif;
+  --body: "Inter", system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+}
+* { box-sizing: border-box; }
+/* Component display rules (e.g. .btn { display: inline-flex }) must never beat [hidden]. */
+[hidden] { display: none !important; }
+html { scroll-behavior: smooth; }
+body {
+  margin: 0; background: var(--bg); color: var(--ink);
+  font: 15px/1.5 var(--body); -webkit-font-smoothing: antialiased;
+  padding-top: env(safe-area-inset-top, 0px); padding-bottom: env(safe-area-inset-bottom, 0px);
+}
+a { color: #c4b5fd; }
+::selection { background: rgba(139, 92, 246, 0.45); }
+button, input, select, textarea { font: inherit; color: inherit; }
+
+/* Cosmic background: slow aurora blobs + faint grid. */
+body.cosmic { background:
+  radial-gradient(1200px 600px at 80% -10%, rgba(139, 92, 246, 0.18), transparent 60%),
+  radial-gradient(900px 500px at -10% 20%, rgba(236, 72, 153, 0.12), transparent 60%),
+  var(--bg); min-height: 100vh; }
+body.cosmic::before { content: ""; position: fixed; inset: 0; pointer-events: none; z-index: 0; opacity: .35;
+  background-image: linear-gradient(rgba(255,255,255,.035) 1px, transparent 1px), linear-gradient(90deg, rgba(255,255,255,.035) 1px, transparent 1px);
+  background-size: 56px 56px; mask-image: radial-gradient(ellipse at 50% 30%, #000 30%, transparent 75%); }
+.aurora { position: fixed; inset: 0; pointer-events: none; z-index: 0; overflow: hidden; filter: blur(70px); opacity: .55; }
+.aurora i { position: absolute; width: 42vmax; height: 42vmax; border-radius: 50%; mix-blend-mode: screen; animation: drift 22s ease-in-out infinite alternate; }
+.aurora i:nth-child(1) { background: #7c3aed; left: -10vmax; top: -12vmax; }
+.aurora i:nth-child(2) { background: #db2777; right: -14vmax; top: 10vmax; animation-duration: 28s; }
+.aurora i:nth-child(3) { background: #0891b2; left: 20vmax; bottom: -22vmax; animation-duration: 34s; }
+@keyframes drift { to { transform: translate(8vmax, 6vmax) scale(1.15); } }
+@media (prefers-reduced-motion: reduce) { .aurora i { animation: none; } }
+body.cosmic > *:not(.aurora) { position: relative; z-index: 1; }
+
+/* Glass surfaces */
+.glass { background: var(--glass); border: 1px solid var(--line); border-radius: var(--radius);
+  backdrop-filter: blur(18px) saturate(140%); -webkit-backdrop-filter: blur(18px) saturate(140%); box-shadow: var(--shadow); }
+.grad-text { background: var(--grad); -webkit-background-clip: text; background-clip: text; color: transparent; }
+
+/* Logo */
+.logo { display: inline-flex; align-items: center; gap: 10px; font-family: var(--display); font-weight: 700;
+  font-size: 20px; color: var(--ink); text-decoration: none; letter-spacing: -0.02em; }
+.logo-mark { width: 28px; height: 28px; border-radius: 50%; background:
+  radial-gradient(circle at 35% 30%, #fff 0 8%, #c4b5fd 20%, #8b5cf6 45%, #3b0764 80%);
+  box-shadow: 0 0 18px rgba(139, 92, 246, .8), inset 0 0 0 1px rgba(255,255,255,.25); }
+
+/* Buttons */
+.btn { display: inline-flex; align-items: center; justify-content: center; gap: 8px; border: 1px solid var(--line-strong);
+  background: var(--glass); color: var(--ink); border-radius: 999px; padding: 9px 18px; font-weight: 600; cursor: pointer;
+  text-decoration: none; transition: transform .15s ease, box-shadow .2s ease, background .2s ease, border-color .2s; white-space: nowrap; }
+.btn:hover { transform: translateY(-1px); border-color: rgba(255,255,255,.28); background: rgba(255,255,255,.08); }
+.btn:active { transform: translateY(0) scale(.98); }
+.btn.primary { border-color: transparent; color: #fff;
+  background: linear-gradient(120deg, #7c3aed, #db2777); box-shadow: 0 10px 30px -8px rgba(219, 39, 119, .65); }
+.btn.primary:hover { box-shadow: 0 14px 36px -8px rgba(219, 39, 119, .85); background: linear-gradient(120deg, #8b5cf6, #ec4899); }
+.btn.ghost { background: transparent; }
+.btn.danger { color: #fecaca; border-color: rgba(248, 113, 113, .35); }
+.btn.danger:hover { background: rgba(248, 113, 113, .12); }
+.btn.lg { padding: 14px 24px; font-size: 16px; }
+.btn:disabled { opacity: .5; cursor: default; transform: none; }
+.btn:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-visible, a:focus-visible {
+  outline: 2px solid #a78bfa; outline-offset: 2px; }
+
+/* Chips & status */
+.chip { display: inline-flex; align-items: center; gap: 6px; border-radius: 999px; padding: 3px 11px; font-size: 12px;
+  font-weight: 600; background: rgba(139, 92, 246, .16); color: #ddd6fe; border: 1px solid rgba(139, 92, 246, .3); white-space: nowrap; }
+.chip.good { background: rgba(52, 211, 153, .14); color: #a7f3d0; border-color: rgba(52, 211, 153, .35); }
+
+/* Form controls */
+input, select, textarea { background: rgba(255,255,255,.04); border: 1px solid var(--line-strong); border-radius: 12px;
+  padding: 10px 12px; width: 100%; transition: border-color .2s, background .2s; }
+input:focus, select:focus, textarea:focus { border-color: rgba(167, 139, 250, .7); background: rgba(255,255,255,.07); outline: none; }
+select option { background: #151226; }
+input[type="checkbox"] { width: auto; accent-color: #8b5cf6; }

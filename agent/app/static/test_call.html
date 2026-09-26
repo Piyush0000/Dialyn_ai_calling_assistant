@@ -2,90 +2,137 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Test call · Dialyn</title>
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Live call · Dialyn</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Space+Grotesk:wght@500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/assets/theme.css">
 <style>
-  :root {
-    --bg: #f6f6f3; --card: #ffffff; --ink: #1c1c1a; --muted: #6b6b66; --line: #e4e3dd;
-    --accent: #1f6f5c; --accent-ink: #ffffff; --danger: #b3362c; --chip: #eef3f1;
-    --user: #eef1f8; --agent: #f1f6f3;
-  }
-  @media (prefers-color-scheme: dark) {
-    :root {
-      --bg: #151514; --card: #1e1e1c; --ink: #ecece8; --muted: #9d9d96; --line: #2f2f2c;
-      --accent: #4fb899; --accent-ink: #0d1f1a; --danger: #e0685e; --chip: #1f2c28;
-      --user: #22252e; --agent: #1d2724;
-    }
-  }
-  * { box-sizing: border-box; }
-  body { margin: 0; background: var(--bg); color: var(--ink);
-    font: 15px/1.5 system-ui, -apple-system, "Segoe UI", sans-serif; }
-  main { max-width: 980px; margin: 0 auto; padding: 32px 16px 48px; }
-  header { display: flex; align-items: baseline; justify-content: space-between; gap: 12px;
-    flex-wrap: wrap; margin-bottom: 20px; }
-  h1 { font-size: 22px; margin: 0; letter-spacing: -0.01em; }
-  .muted { color: var(--muted); }
-  .grid { display: grid; grid-template-columns: 320px 1fr; gap: 16px; }
-  @media (max-width: 760px) { .grid { grid-template-columns: 1fr; } }
-  .card { background: var(--card); border: 1px solid var(--line); border-radius: 14px; padding: 18px; }
-  .card h2 { font-size: 13px; text-transform: uppercase; letter-spacing: .06em; color: var(--muted);
-    margin: 0 0 12px; font-weight: 600; }
-  dl { margin: 0; display: grid; grid-template-columns: auto 1fr; gap: 6px 12px; }
-  dt { color: var(--muted); } dd { margin: 0; overflow-wrap: anywhere; }
-  .chip { display: inline-block; background: var(--chip); color: var(--accent); border-radius: 999px;
-    padding: 2px 10px; font-size: 13px; font-weight: 600; }
-  button { font: inherit; font-weight: 600; border: 0; border-radius: 999px; padding: 12px 22px;
-    cursor: pointer; background: var(--accent); color: var(--accent-ink); width: 100%; margin-top: 16px; }
-  button.hang { background: var(--danger); color: #fff; }
-  button:disabled { opacity: .5; cursor: default; }
-  .status { margin-top: 10px; font-size: 14px; min-height: 21px; }
-  .transcript { display: flex; flex-direction: column; gap: 8px; min-height: 260px; max-height: 460px;
-    overflow-y: auto; }
-  .msg { padding: 9px 12px; border-radius: 12px; max-width: 85%; }
-  .msg.user { background: var(--user); align-self: flex-end; }
-  .msg.assistant { background: var(--agent); align-self: flex-start; }
-  .msg small { display: block; color: var(--muted); font-size: 12px; margin-bottom: 2px; }
-  .empty { color: var(--muted); margin: auto; text-align: center; }
-  .outcome { margin-top: 16px; }
-  .timeline { list-style: none; padding: 0; margin: 0; font-size: 13px; }
-  .timeline li { padding: 4px 0; border-bottom: 1px dashed var(--line); }
-  .timeline time { color: var(--muted); margin-right: 8px; font-variant-numeric: tabular-nums; }
-  .stack { display: grid; gap: 16px; }
+  body { min-height: 100dvh; }
+  .top { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap;
+    padding: 14px clamp(16px, 3vw, 32px); }
+  .top .meta { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+  .pill { display: inline-flex; align-items: center; gap: 8px; padding: 6px 12px; border-radius: 999px; font-size: 13px;
+    background: var(--glass); border: 1px solid var(--line); color: var(--ink-2); }
+  .pill .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--muted); }
+  .pill.live .dot { background: #f43f5e; box-shadow: 0 0 10px #f43f5e; animation: pulse 1.4s infinite; }
+  @keyframes pulse { 50% { opacity: .35; } }
+  .timer { font-variant-numeric: tabular-nums; font-family: var(--display); color: var(--ink); }
+
+  .layout { display: grid; grid-template-columns: minmax(0, 1fr) 380px; gap: 20px;
+    padding: 0 clamp(16px, 3vw, 32px) 28px; min-height: calc(100dvh - 72px); }
+  @media (max-width: 980px) { .layout { grid-template-columns: 1fr; } }
+
+  .stage { display: flex; flex-direction: column; align-items: center; justify-content: center; text-align: center;
+    padding: 12px 0 24px; position: relative; }
+  .avatar-wrap { width: min(480px, 88vw, 58dvh); aspect-ratio: 1; position: relative; margin-top: -24px; }
+  .avatar-wrap canvas { width: 100%; height: 100%; display: block; }
+  .who { font-family: var(--display); font-size: clamp(22px, 3vw, 30px); font-weight: 700; margin-top: -48px; letter-spacing: -.02em; }
+  .state { margin-top: 6px; font-size: 14px; color: var(--ink-2); display: inline-flex; gap: 8px; align-items: center; min-height: 22px; }
+  .state b { font-weight: 600; transition: color .3s; }
+  .caption { margin: 12px auto 0; max-width: 640px; min-height: 58px; font-size: clamp(16px, 2vw, 20px); line-height: 1.45;
+    color: var(--ink); padding: 0 12px; transition: opacity .25s; }
+  .caption .speaker { display: block; font-size: 12px; text-transform: uppercase; letter-spacing: .1em; color: var(--muted); margin-bottom: 4px; }
+
+  .controls { display: flex; gap: 18px; align-items: center; justify-content: center; margin-top: 22px; }
+  .round { width: 58px; height: 58px; border-radius: 50%; border: 1px solid var(--line-strong); background: var(--glass);
+    display: grid; place-items: center; cursor: pointer; color: var(--ink); transition: transform .15s, background .2s; }
+  .round:hover { transform: translateY(-2px); background: rgba(255,255,255,.09); }
+  .round svg { width: 24px; height: 24px; }
+  .round.off { background: rgba(248,113,113,.18); border-color: rgba(248,113,113,.45); color: #fecaca; }
+  .call-btn { width: 84px; height: 84px; border-radius: 50%; border: 0; cursor: pointer; display: grid; place-items: center; color: #fff;
+    background: linear-gradient(135deg, #10b981, #22d3ee); box-shadow: 0 16px 40px -10px rgba(16,185,129,.8), 0 0 0 8px rgba(16,185,129,.12);
+    transition: transform .15s, box-shadow .3s, background .3s; }
+  .call-btn:hover { transform: scale(1.05); }
+  .call-btn svg { width: 34px; height: 34px; }
+  .call-btn.hang { background: linear-gradient(135deg, #f43f5e, #db2777); box-shadow: 0 16px 40px -10px rgba(244,63,94,.8), 0 0 0 8px rgba(244,63,94,.14); }
+  .call-btn.hang svg { transform: rotate(135deg); }
+  .call-btn:disabled { opacity: .45; cursor: default; transform: none; }
+  .hint { margin-top: 14px; color: var(--muted); font-size: 13px; min-height: 20px; }
+  .error-text { color: #fecaca; }
+
+  .panel { display: flex; flex-direction: column; min-height: 0; max-height: calc(100dvh - 100px); position: sticky; top: 16px; }
+  @media (max-width: 980px) { .panel { position: static; max-height: none; } }
+  .tabs { display: flex; gap: 4px; padding: 6px; margin: 12px 12px 0; background: rgba(0,0,0,.25); border-radius: 12px; }
+  .tabs button { flex: 1; border: 0; background: transparent; padding: 8px; border-radius: 9px; color: var(--ink-2); cursor: pointer; font-weight: 600; font-size: 13px; }
+  .tabs button[aria-selected="true"] { background: rgba(255,255,255,.1); color: var(--ink); }
+  .tab { padding: 16px; overflow-y: auto; flex: 1; min-height: 240px; }
+  .msgs { display: flex; flex-direction: column; gap: 10px; }
+  .msg { max-width: 88%; padding: 10px 14px; border-radius: 16px; line-height: 1.45; animation: rise .3s ease; }
+  .msg.assistant { align-self: flex-start; background: linear-gradient(135deg, rgba(139,92,246,.25), rgba(236,72,153,.15)); border: 1px solid rgba(167,139,250,.25); border-bottom-left-radius: 6px; }
+  .msg.user { align-self: flex-end; background: rgba(34,211,238,.12); border: 1px solid rgba(34,211,238,.25); border-bottom-right-radius: 6px; }
+  .msg small { display: block; font-size: 11px; color: var(--muted); margin-bottom: 2px; }
+  @keyframes rise { from { opacity: 0; transform: translateY(6px); } }
+  .empty { color: var(--muted); text-align: center; margin-top: 40px; }
+  dl.facts { display: grid; grid-template-columns: auto 1fr; gap: 10px 16px; margin: 0; }
+  dl.facts dt { color: var(--muted); } dl.facts dd { margin: 0; overflow-wrap: anywhere; }
+  ul.timeline { list-style: none; margin: 0; padding: 0 0 0 14px; border-left: 1px solid var(--line-strong); }
+  ul.timeline li { position: relative; padding: 0 0 14px 12px; font-size: 13px; }
+  ul.timeline li::before { content: ""; position: absolute; left: -19px; top: 5px; width: 9px; height: 9px; border-radius: 50%; background: var(--grad); }
+  ul.timeline time { display: block; color: var(--muted); font-size: 11px; }
+
+  .outcome { position: fixed; left: 50%; bottom: 24px; transform: translate(-50%, 140%); transition: transform .6s cubic-bezier(.2,.9,.3,1.2);
+    z-index: 30; width: min(460px, calc(100vw - 32px)); padding: 18px 20px; display: flex; gap: 14px; align-items: flex-start; }
+  .outcome.show { transform: translate(-50%, 0); }
+  .outcome .badge { width: 44px; height: 44px; border-radius: 14px; flex: none; display: grid; place-items: center; font-size: 22px;
+    background: linear-gradient(135deg, #10b981, #22d3ee); box-shadow: 0 8px 24px -6px rgba(16,185,129,.8); }
+  .outcome h3 { margin: 0 0 2px; font-size: 16px; text-transform: capitalize; }
+  .outcome p { margin: 0; color: var(--ink-2); font-size: 14px; }
+  .spark { position: fixed; width: 8px; height: 8px; border-radius: 2px; pointer-events: none; z-index: 29; animation: burst 1.1s ease-out forwards; }
+  @keyframes burst { to { transform: translate(var(--dx), var(--dy)) rotate(540deg); opacity: 0; } }
 </style>
 </head>
-<body>
-<main>
-  <header>
-    <h1 id="title">Test call</h1>
-    <span class="muted">Use headphones so the agent doesn't hear itself.</span>
-  </header>
-  <div class="grid">
-    <div class="stack">
-      <section class="card">
-        <h2>Scenario</h2>
-        <dl id="facts"></dl>
-        <button id="call">Start call</button>
-        <div class="status muted" id="status"></div>
-      </section>
-      <section class="card" id="outcomeCard" hidden>
-        <h2>Outcome</h2>
-        <div id="outcome"></div>
-      </section>
-    </div>
-    <div class="stack">
-      <section class="card">
-        <h2>Live transcript</h2>
-        <div class="transcript" id="transcript"><p class="empty">The conversation will appear here.</p></div>
-      </section>
-      <section class="card">
-        <h2>Timeline</h2>
-        <ul class="timeline" id="timeline"></ul>
-      </section>
-    </div>
+<body class="cosmic">
+<div class="aurora" aria-hidden="true"><i></i><i></i><i></i></div>
+
+<header class="top">
+  <a href="/" class="logo"><span class="logo-mark"></span>Dialyn</a>
+  <div class="meta">
+    <span class="pill" id="eventPill">Test call</span>
+    <span class="pill" id="langPill"></span>
+    <span class="pill" id="livePill"><span class="dot"></span><span class="timer" id="timer">00:00</span></span>
   </div>
-  <audio id="remote" autoplay></audio>
-</main>
+</header>
+
+<div class="layout">
+  <section class="stage">
+    <div class="avatar-wrap"><canvas id="avatar" aria-label="AI agent"></canvas></div>
+    <div class="who" id="who">Your AI agent</div>
+    <div class="state" id="state"><b>Ready</b><span>· tap the green button to start</span></div>
+    <div class="caption" id="caption" aria-live="polite"></div>
+    <div class="controls">
+      <button class="round" id="mute" title="Mute microphone" aria-label="Mute microphone" disabled>
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M12 3a3 3 0 0 0-3 3v6a3 3 0 0 0 6 0V6a3 3 0 0 0-3-3Z"/><path d="M19 11a7 7 0 0 1-14 0M12 18v3"/></svg>
+      </button>
+      <button class="call-btn" id="call" aria-label="Start call">
+        <svg viewBox="0 0 24 24" fill="currentColor"><path d="M6.6 10.8a15.1 15.1 0 0 0 6.6 6.6l2.2-2.2a1 1 0 0 1 1-.25 11.4 11.4 0 0 0 3.6.57 1 1 0 0 1 1 1V20a1 1 0 0 1-1 1A17 17 0 0 1 3 4a1 1 0 0 1 1-1h3.5a1 1 0 0 1 1 1c0 1.25.2 2.45.57 3.57a1 1 0 0 1-.25 1z"/></svg>
+      </button>
+      <a class="round" id="volume" title="Use headphones for the best experience" aria-label="Headphones tip">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M3 14v-2a9 9 0 0 1 18 0v2"/><path d="M21 14v3a2 2 0 0 1-2 2h-1v-6h1a2 2 0 0 1 2 2ZM3 14v3a2 2 0 0 0 2 2h1v-6H5a2 2 0 0 0-2 2Z"/></svg>
+      </a>
+    </div>
+    <div class="hint" id="hint">Use headphones so the agent doesn't hear itself.</div>
+  </section>
+
+  <aside class="glass panel">
+    <div class="tabs" role="tablist">
+      <button role="tab" aria-selected="true" data-tab="convo">Conversation</button>
+      <button role="tab" aria-selected="false" data-tab="order">Order</button>
+      <button role="tab" aria-selected="false" data-tab="timeline">Timeline</button>
+    </div>
+    <div class="tab" id="tab-convo"><div class="msgs" id="msgs"><p class="empty">The conversation appears here in real time.</p></div></div>
+    <div class="tab" id="tab-order" hidden><dl class="facts" id="facts"></dl></div>
+    <div class="tab" id="tab-timeline" hidden><ul class="timeline" id="timeline"></ul></div>
+  </aside>
+</div>
+
+<div class="glass outcome" id="outcome" role="status"><div class="badge">✓</div><div><h3 id="outcomeTitle"></h3><p id="outcomeText"></p></div></div>
+<audio id="remote" autoplay></audio>
+
+<script src="/assets/avatar.js"></script>
 <script>
+"use strict";
 const callId = location.pathname.split("/")[2];
 const token = new URLSearchParams(location.search).get("token");
 const liveUrl = `/test/${callId}/live?token=${encodeURIComponent(token)}`;
@@ -95,83 +142,135 @@ const EVENT_TITLES = {
   payment_success: "Payment successful", payment_failed: "Payment failed",
   order_shipped: "Order shipped", out_for_delivery: "Out for delivery",
 };
-let pc = null, stream = null, poll = null;
+const STATE_TEXT = {
+  idle: ["Ready", "tap the green button to start"], connecting: ["Connecting", "setting up a secure line"],
+  speaking: ["Speaking", ""], listening: ["Listening", "go ahead, speak naturally"],
+  thinking: ["Thinking", ""], happy: ["Done", "outcome recorded"], ended: ["Call ended", ""],
+};
+const STATE_COLOR = { speaking: "#c4b5fd", listening: "#67e8f9", thinking: "#f9a8d4", happy: "#6ee7b7", ended: "#94a3b8" };
 
-function text(el, value) { el.textContent = value ?? ""; return el; }
-function el(tag, cls, value) { const e = document.createElement(tag); if (cls) e.className = cls; return text(e, value); }
+const avatar = new DialynAvatar($("avatar"));
+let pc = null, stream = null, poll = null, audioCtx = null, agentMeter = null, userMeter = null;
+let muted = false, inCall = false, connectedAt = 0, lastUserVoice = 0, lastAgentVoice = 0;
+let happyUntil = 0, lastOutcome = null, lastCount = 0, uiState = "idle";
 
+function text(el, v) { el.textContent = v ?? ""; return el; }
+function el(tag, cls, v) { const e = document.createElement(tag); if (cls) e.className = cls; return text(e, v); }
+const label = (v) => (v || "").replaceAll("_", " ");
+
+function setUiState(state, detail) {
+  uiState = state;
+  const [title, sub] = STATE_TEXT[state] || [state, ""];
+  const s = $("state");
+  s.replaceChildren(el("b", null, title), ...(detail || sub ? [el("span", null, `· ${detail || sub}`)] : []));
+  s.querySelector("b").style.color = STATE_COLOR[state] || "";
+}
+
+// ------------------------------------------------------------------ live data
 function renderFacts(d) {
-  $("title").textContent = EVENT_TITLES[d.event] || "Test call";
+  $("eventPill").textContent = EVENT_TITLES[d.event] || "Test call";
+  $("langPill").textContent = d.language === "hi" ? "Hinglish" : "English";
   const o = d.order || {};
   const rows = [
-    ["Customer", d.customer_name], ["Language", d.language === "hi" ? "Hinglish" : "English"],
-    ["Order", o.id], ["Amount", o.amount != null ? `${o.amount} ${o.currency || ""}` : null],
+    ["Customer", d.customer_name], ["Order", o.id], ["Amount", o.amount != null ? `${o.amount} ${o.currency || ""}` : null],
     ["Items", (o.items || []).map(i => `${i.quantity || 1} × ${i.name}`).join(", ")],
-    ["Payment", o.payment_method], ["Address", o.address], ["Delivery", o.expected_delivery],
+    ["Payment", o.payment_method], ["Address", o.address], ["Delivery", o.expected_delivery], ["Courier", o.courier],
   ];
-  const dl = $("facts"); dl.replaceChildren();
-  for (const [k, v] of rows) if (v) { dl.append(el("dt", null, k), el("dd", null, v)); }
+  $("facts").replaceChildren(...rows.filter(r => r[1]).flatMap(([k, v]) => [el("dt", null, k), el("dd", null, v)]));
+  $("who").textContent = d.customer_name ? `Calling ${d.customer_name}` : "Your AI agent";
 }
 
 function render(d) {
-  const box = $("transcript");
-  if (d.transcript && d.transcript.length) {
-    box.replaceChildren(...d.transcript.map(m => {
+  const t = d.transcript || [];
+  if (t.length !== lastCount) {
+    lastCount = t.length;
+    $("msgs").replaceChildren(...t.map(m => {
       const div = el("div", `msg ${m.role}`);
-      div.append(el("small", null, m.role === "user" ? "Customer" : "Agent"), document.createTextNode(m.text));
+      div.append(el("small", null, m.role === "user" ? "You (customer)" : "Agent"), document.createTextNode(m.text));
       return div;
     }));
-    box.scrollTop = box.scrollHeight;
-  }
-  $("timeline").replaceChildren(...(d.timeline || []).map(t => {
-    const li = el("li"); li.append(el("time", null, new Date(t.at).toLocaleTimeString()), document.createTextNode(t.event));
-    return li;
-  }));
-  if (d.outcome) {
-    $("outcomeCard").hidden = false;
-    const out = $("outcome"); out.replaceChildren(el("span", "chip", d.outcome.replaceAll("_", " ")));
-    for (const [k, v] of Object.entries(d.outcome_data || {})) {
-      const p = el("p", null); p.append(el("strong", null, `${k.replaceAll("_", " ")}: `), document.createTextNode(v)); out.append(p);
+    $("tab-convo").scrollTop = $("tab-convo").scrollHeight;
+    const last = t[t.length - 1];
+    if (last) {
+      const cap = $("caption");
+      cap.replaceChildren(el("span", "speaker", last.role === "user" ? "You" : "Agent"), document.createTextNode(last.text));
     }
   }
+  $("timeline").replaceChildren(...(d.timeline || []).map(x => {
+    const li = el("li"); li.append(el("time", null, new Date(x.at).toLocaleTimeString()), document.createTextNode(label(x.event)));
+    return li;
+  }));
+  if (d.outcome && d.outcome !== lastOutcome) {
+    lastOutcome = d.outcome;
+    const notes = Object.entries(d.outcome_data || {}).map(([k, v]) => `${label(k)}: ${v}`).join(" · ");
+    text($("outcomeTitle"), label(d.outcome));
+    text($("outcomeText"), notes || "Recorded and sent to the store.");
+    $("outcome").classList.add("show");
+    happyUntil = performance.now() + 3500;
+    burst();
+  }
   if (["completed", "transferred", "failed"].includes(d.status)) {
-    text($("status"), `Call ${d.status}${d.duration_secs ? ` · ${Math.round(d.duration_secs)}s` : ""}.`);
-    const b = $("call"); b.disabled = true; b.className = ""; b.textContent = "Call finished";
+    finishUi(d.duration_secs);
     stopPolling();
   }
 }
 
 async function refresh() {
   const r = await fetch(liveUrl);
-  if (!r.ok) { text($("status"), "This test link is invalid or has expired."); $("call").disabled = true; return null; }
+  if (!r.ok) {
+    setUiState("ended");
+    $("hint").className = "hint error-text";
+    text($("hint"), "This test link is invalid or has expired. Create a new call from the dashboard.");
+    $("call").disabled = true;
+    return null;
+  }
   const d = await r.json(); render(d); return d;
 }
-function startPolling() { stopPolling(); poll = setInterval(refresh, 1000); }
+function startPolling() { stopPolling(); poll = setInterval(() => refresh().catch(() => {}), 1000); }
 function stopPolling() { if (poll) clearInterval(poll); poll = null; }
 
+// ------------------------------------------------------------------ call
 async function start() {
-  const b = $("call"); b.disabled = true; text($("status"), "Asking for microphone…");
+  const b = $("call"); b.disabled = true;
+  setUiState("connecting", "asking for microphone");
+  avatar.setState("thinking");
   try {
     stream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true } });
-  } catch { text($("status"), "Microphone permission is needed for the call."); b.disabled = false; return; }
+  } catch {
+    setUiState("idle", "microphone permission is needed");
+    avatar.setState("idle"); b.disabled = false; return;
+  }
+  audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+  userMeter = dialynAudioLevel(stream, audioCtx);
 
-  text($("status"), "Connecting…");
+  setUiState("connecting");
   const ice = await fetch("/webrtc/ice-servers").then(r => r.json()).catch(() => ({ iceServers: [{ urls: "stun:stun.l.google.com:19302" }] }));
   pc = new RTCPeerConnection({ iceServers: ice.iceServers });
   pc.createDataChannel("chat");
   pc.addTransceiver(stream.getAudioTracks()[0], { direction: "sendrecv", streams: [stream] });
   pc.addTransceiver("video", { direction: "recvonly" });
-  pc.ontrack = (e) => { if (e.track.kind === "audio") $("remote").srcObject = e.streams[0] || new MediaStream([e.track]); };
+  pc.ontrack = (e) => {
+    if (e.track.kind !== "audio") return;
+    const remote = e.streams[0] || new MediaStream([e.track]);
+    $("remote").srcObject = remote;
+    agentMeter = dialynAudioLevel(remote, audioCtx);
+  };
   pc.onconnectionstatechange = () => {
-    if (pc.connectionState === "connected") { text($("status"), "Connected: the agent will speak first."); b.disabled = false; b.className = "hang"; b.textContent = "Hang up"; }
-    if (["failed", "closed"].includes(pc.connectionState)) text($("status"), "Call ended.");
+    if (pc?.connectionState === "connected") {
+      inCall = true; connectedAt = performance.now();
+      b.disabled = false; b.classList.add("hang"); b.setAttribute("aria-label", "Hang up");
+      $("mute").disabled = false;
+      $("livePill").classList.add("live");
+      text($("hint"), "The agent speaks first. Interrupt any time, just like a real call.");
+    }
+    if (["failed", "closed", "disconnected"].includes(pc?.connectionState) && inCall) finishUi();
   };
 
   await pc.setLocalDescription(await pc.createOffer());
   await new Promise((resolve) => {
     if (pc.iceGatheringState === "complete") return resolve();
-    const done = () => pc.iceGatheringState === "complete" && resolve();
-    pc.addEventListener("icegatheringstatechange", done); setTimeout(resolve, 2000);
+    pc.addEventListener("icegatheringstatechange", () => pc.iceGatheringState === "complete" && resolve());
+    setTimeout(resolve, 2000);
   });
   const r = await fetch("/api/offer", {
     method: "POST", headers: { "Content-Type": "application/json" },
@@ -179,23 +278,96 @@ async function start() {
   });
   if (!r.ok) {
     const err = await r.json().catch(() => ({}));
-    text($("status"), err.detail || `Could not start the call (${r.status}).`);
-    hangUp(false); return;
+    $("hint").className = "hint error-text";
+    text($("hint"), err.detail || `Could not start the call (${r.status}).`);
+    cleanup(); setUiState("idle"); avatar.setState("idle"); b.disabled = false;
+    return;
   }
   await pc.setRemoteDescription(await r.json());
   startPolling();
 }
 
-function hangUp(final = true) {
+function cleanup() {
   if (pc) pc.close(); pc = null;
   if (stream) stream.getTracks().forEach(t => t.stop()); stream = null;
-  const b = $("call");
-  if (final) { b.disabled = true; text($("status"), "Hanging up…"); setTimeout(refresh, 1500); }
-  else { b.disabled = false; b.className = ""; b.textContent = "Start call"; }
+  agentMeter = userMeter = null;
+}
+
+function finishUi(duration) {
+  inCall = false;
+  cleanup();
+  $("livePill").classList.remove("live");
+  const b = $("call"); b.disabled = true; b.classList.add("hang");
+  $("mute").disabled = true;
+  setUiState("ended", duration ? `${Math.round(duration)} seconds` : "");
+  avatar.setState("ended");
+  text($("hint"), "Open the dashboard to see the recording and full details.");
+}
+
+function hangUp() {
+  $("call").disabled = true;
+  setUiState("ended", "hanging up");
+  cleanup();
+  setTimeout(() => refresh().catch(() => {}), 1500);
 }
 
 $("call").addEventListener("click", () => (pc ? hangUp() : start()));
-refresh().then(d => { if (d) { renderFacts(d); if (d.status !== "waiting_for_browser" && d.status !== "completed") startPolling(); } });
+$("mute").addEventListener("click", () => {
+  muted = !muted;
+  stream?.getAudioTracks().forEach(t => (t.enabled = !muted));
+  $("mute").classList.toggle("off", muted);
+  $("mute").setAttribute("aria-label", muted ? "Unmute microphone" : "Mute microphone");
+});
+document.querySelectorAll(".tabs button").forEach(btn => btn.addEventListener("click", () => {
+  document.querySelectorAll(".tabs button").forEach(b => b.setAttribute("aria-selected", String(b === btn)));
+  for (const t of ["convo", "order", "timeline"]) $(`tab-${t}`).hidden = btn.dataset.tab !== t;
+}));
+
+// ------------------------------------------------------------------ animation loop
+function loop(now) {
+  if (inCall) {
+    const agent = agentMeter ? agentMeter() : 0;
+    const user = userMeter && !muted ? userMeter() : 0;
+    if (agent > 0.05) lastAgentVoice = now;
+    if (user > 0.08) lastUserVoice = now;
+    avatar.setLevels(agent, user);
+    let state;
+    if (now < happyUntil) state = "happy";
+    else if (now - lastAgentVoice < 250) state = "speaking";
+    else if (now - lastUserVoice < 350) state = "listening";
+    else if (lastUserVoice > lastAgentVoice && now - lastUserVoice < 6000) state = "thinking";
+    else state = "listening";
+    avatar.setState(state);
+    if (state !== uiState) setUiState(state, state === "listening" && muted ? "you are muted" : "");
+    const secs = Math.floor((now - connectedAt) / 1000);
+    $("timer").textContent = `${String(Math.floor(secs / 60)).padStart(2, "0")}:${String(secs % 60).padStart(2, "0")}`;
+  } else {
+    avatar.setLevels(0, 0);
+  }
+  requestAnimationFrame(loop);
+}
+requestAnimationFrame(loop);
+
+function burst() {
+  const colors = ["#a78bfa", "#ec4899", "#22d3ee", "#34d399", "#fbbf24"];
+  const x = innerWidth / 2, y = innerHeight - 90;
+  for (let i = 0; i < 36; i++) {
+    const s = el("i", "spark");
+    const a = Math.random() * Math.PI - Math.PI;
+    const d = 120 + Math.random() * 220;
+    s.style.cssText = `left:${x}px;top:${y}px;background:${colors[i % colors.length]};--dx:${Math.cos(a) * d}px;--dy:${Math.sin(a) * d}px`;
+    document.body.append(s);
+    setTimeout(() => s.remove(), 1200);
+  }
+}
+
+refresh().then(d => {
+  if (!d) return;
+  renderFacts(d);
+  if (d.status === "waiting_for_browser") return;
+  if (["completed", "transferred", "failed", "canceled"].includes(d.status)) finishUi(d.duration_secs);
+  else startPolling();
+});
 </script>
 </body>
 </html>

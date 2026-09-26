@@ -1,0 +1,199 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Dialyn — AI that calls your customers</title>
+<meta name="description" content="Human-sounding AI voice agents that confirm orders, verify COD, chase failed payments and coordinate deliveries, in English and Hinglish.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Space+Grotesk:wght@500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/assets/theme.css">
+<style>
+  .nav { position: sticky; top: 0; z-index: 20; display: flex; align-items: center; justify-content: space-between;
+    padding: 14px clamp(16px, 4vw, 48px); backdrop-filter: blur(14px); background: rgba(7, 6, 18, 0.55);
+    border-bottom: 1px solid var(--line); }
+  .nav .links { display: flex; gap: 8px; align-items: center; }
+  .nav .links a.plain { color: var(--ink-2); text-decoration: none; padding: 8px 12px; border-radius: 999px; }
+  .nav .links a.plain:hover { color: var(--ink); background: var(--glass); }
+  @media (max-width: 640px) { .nav .links a.plain { display: none; } }
+
+  .hero { position: relative; display: grid; grid-template-columns: 1.05fr 1fr; gap: clamp(16px, 4vw, 56px);
+    align-items: center; padding: clamp(32px, 7vw, 96px) clamp(16px, 4vw, 48px) 40px; max-width: 1240px; margin: 0 auto; }
+  @media (max-width: 900px) { .hero { grid-template-columns: 1fr; text-align: center; } .hero .ctas { justify-content: center; } }
+  .eyebrow { display: inline-flex; align-items: center; gap: 8px; padding: 6px 12px; border-radius: 999px;
+    background: var(--glass); border: 1px solid var(--line); color: var(--ink-2); font-size: 13px; }
+  .eyebrow .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--good); box-shadow: 0 0 12px var(--good); }
+  h1.display { font-family: var(--display); font-size: clamp(38px, 6.2vw, 76px); line-height: 1.02; letter-spacing: -0.03em;
+    margin: 18px 0 16px; font-weight: 700; }
+  .lead { font-size: clamp(16px, 1.6vw, 19px); color: var(--ink-2); max-width: 560px; line-height: 1.6; }
+  @media (max-width: 900px) { .lead { margin: 0 auto; } }
+  .ctas { display: flex; gap: 12px; margin-top: 28px; flex-wrap: wrap; }
+  .proof { display: flex; gap: 28px; margin-top: 36px; flex-wrap: wrap; color: var(--ink-2); font-size: 14px; }
+  @media (max-width: 900px) { .proof { justify-content: center; } }
+  .proof strong { display: block; font-family: var(--display); font-size: 26px; color: var(--ink); }
+
+  .stage { position: relative; aspect-ratio: 1 / 1; width: 100%; max-width: 560px; margin: 0 auto; }
+  .stage canvas { position: absolute; inset: 0; width: 100%; height: 100%; }
+  .float { position: absolute; padding: 10px 14px; border-radius: 16px; background: var(--glass-strong);
+    border: 1px solid var(--line-strong); backdrop-filter: blur(16px); box-shadow: var(--shadow); font-size: 13px;
+    max-width: 240px; transition: opacity .5s, transform .5s; text-align: left; }
+  .float small { display: block; color: var(--muted); font-size: 11px; text-transform: uppercase; letter-spacing: .08em; margin-bottom: 2px; }
+  .float.caption { left: 0; top: 12%; }
+  .float.user { right: 0; top: 66%; }
+  .float.outcome { left: 6%; bottom: 8%; }
+  .float.metric { right: 2%; top: 6%; }
+  .float.hide { opacity: 0; transform: translateY(10px); }
+  @media (max-width: 520px) { .float { font-size: 12px; max-width: 180px; } .float.metric { display: none; } }
+
+  section.block { max-width: 1240px; margin: 0 auto; padding: clamp(40px, 7vw, 90px) clamp(16px, 4vw, 48px); }
+  .section-title { font-family: var(--display); font-size: clamp(28px, 4vw, 44px); letter-spacing: -0.02em; margin: 0 0 12px; }
+  .section-sub { color: var(--ink-2); margin: 0 0 36px; max-width: 640px; font-size: 17px; }
+  .features { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 16px; }
+  @media (max-width: 900px) { .features { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+  @media (max-width: 560px) { .features { grid-template-columns: 1fr; } }
+  .feature { padding: 24px; }
+  .feature .icon { width: 44px; height: 44px; border-radius: 14px; display: grid; place-items: center; margin-bottom: 16px;
+    background: linear-gradient(135deg, rgba(139,92,246,.35), rgba(236,72,153,.25)); border: 1px solid var(--line-strong); }
+  .feature .icon svg { width: 22px; height: 22px; stroke: #fff; }
+  .feature h3 { margin: 0 0 6px; font-size: 17px; }
+  .feature p { margin: 0; color: var(--ink-2); line-height: 1.55; }
+
+  .events { display: flex; flex-wrap: wrap; gap: 10px; }
+  .event-pill { padding: 12px 18px; border-radius: 999px; background: var(--glass); border: 1px solid var(--line);
+    display: inline-flex; gap: 10px; align-items: center; font-weight: 500; }
+  .event-pill span { width: 10px; height: 10px; border-radius: 50%; background: var(--grad); }
+
+  .steps { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 16px; counter-reset: step; }
+  @media (max-width: 800px) { .steps { grid-template-columns: 1fr; } }
+  .step { padding: 26px; position: relative; }
+  .step::before { counter-increment: step; content: counter(step); font-family: var(--display); font-size: 56px; font-weight: 700;
+    background: var(--grad); -webkit-background-clip: text; background-clip: text; color: transparent; line-height: 1; display: block; margin-bottom: 12px; }
+  .step h3 { margin: 0 0 6px; } .step p { margin: 0; color: var(--ink-2); line-height: 1.55; }
+
+  .final { text-align: center; padding: clamp(40px, 6vw, 72px) 24px; margin: 0 clamp(16px, 4vw, 48px) 60px;
+    border-radius: 28px; position: relative; overflow: hidden; }
+  .final h2 { font-family: var(--display); font-size: clamp(28px, 4.2vw, 48px); margin: 0 0 12px; letter-spacing: -0.02em; }
+  .final p { color: var(--ink-2); margin: 0 auto 28px; max-width: 520px; }
+  footer { text-align: center; color: var(--muted); padding: 0 16px 40px; font-size: 13px; }
+</style>
+</head>
+<body class="cosmic">
+<div class="aurora" aria-hidden="true"><i></i><i></i><i></i></div>
+
+<header class="nav">
+  <a href="/" class="logo"><span class="logo-mark"></span>Dialyn</a>
+  <nav class="links">
+    <a class="plain" href="#features">Features</a>
+    <a class="plain" href="#how">How it works</a>
+    <a class="plain" href="/docs">API</a>
+    <a class="btn ghost" href="/dashboard">Sign in</a>
+    <a class="btn primary" href="/dashboard#/signup">Start free</a>
+  </nav>
+</header>
+
+<main>
+  <section class="hero">
+    <div>
+      <span class="eyebrow"><span class="dot"></span> Real-time voice AI · English & Hinglish</span>
+      <h1 class="display">AI that calls your customers <span class="grad-text">like a human would.</span></h1>
+      <p class="lead">Dialyn confirms orders, verifies cash-on-delivery, rescues failed payments and coordinates deliveries — then tells your store exactly what happened.</p>
+      <div class="ctas">
+        <a class="btn primary lg" href="/dashboard#/signup">Create your store — free</a>
+        <a class="btn ghost lg" href="/dashboard#/new">▶ Try a live call</a>
+      </div>
+      <div class="proof">
+        <div><strong>~0.8s</strong>reply time</div>
+        <div><strong>6</strong>order events</div>
+        <div><strong>24×7</strong>calling hours you set</div>
+      </div>
+    </div>
+    <div class="stage" aria-label="Animated AI agent demo">
+      <canvas id="avatar"></canvas>
+      <div class="float caption" id="capAgent"><small>Priya · Kurta Kart</small><span>Namaste Riya ji! Aapka COD order confirm karna tha.</span></div>
+      <div class="float user hide" id="capUser"><small>Customer</small><span>Haan, address 5 FC Road kar dijiye.</span></div>
+      <div class="float outcome hide" id="capOutcome"><small>Outcome</small><span class="chip good">✓ change requested</span></div>
+      <div class="float metric"><small>Latency</small><span>STT 0.4s · AI 0.2s · Voice 0.3s</span></div>
+    </div>
+  </section>
+
+  <section class="block" id="features">
+    <h2 class="section-title">Everything a calling team does. <span class="grad-text">Minus the team.</span></h2>
+    <p class="section-sub">Built for Indian e-commerce: COD-heavy, multilingual, and allergic to RTO.</p>
+    <div class="features">
+      <article class="glass feature"><div class="icon"><svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round"><path d="M12 3a3 3 0 0 0-3 3v6a3 3 0 0 0 6 0V6a3 3 0 0 0-3-3Z"/><path d="M19 11a7 7 0 0 1-14 0M12 18v3"/></svg></div>
+        <h3>Human-sounding voices</h3><p>Pick from 40+ voices, clone your own, or record a real greeting. Customers hear a person, not a robot.</p></article>
+      <article class="glass feature"><div class="icon"><svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round"><path d="M4 5h9M8.5 3v2M6 5c1 4 4 7 7 8M11 5c-1 4-4 7-7 8"/><path d="m13 21 4-9 4 9M14.5 18h5"/></svg></div>
+        <h3>Hinglish that feels local</h3><p>Natural Hindi–English mix with Indian voices, so every customer feels at home.</p></article>
+      <article class="glass feature"><div class="icon"><svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round"><path d="M13 2 4 14h7l-1 8 9-12h-7z"/></svg></div>
+        <h3>Real-time, interruptible</h3><p>Replies in under a second and stops the moment the customer speaks — just like a real call.</p></article>
+      <article class="glass feature"><div class="icon"><svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round"><path d="M3 7h18l-2 13H5z"/><path d="M8 7a4 4 0 0 1 8 0"/></svg></div>
+        <h3>Shopify & WooCommerce</h3><p>Paste one webhook URL. New COD orders, failed payments and deliveries trigger calls automatically.</p></article>
+      <article class="glass feature"><div class="icon"><svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round"><path d="M4 19V5M4 19h16M8 15l3-4 3 2 5-6"/></svg></div>
+        <h3>Outcomes, not just calls</h3><p>Every call ends with a clear result — confirmed, cancel, reschedule — plus transcript, recording and webhook.</p></article>
+      <article class="glass feature"><div class="icon"><svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg></div>
+        <h3>Polite by design</h3><p>Calling hours per store, smart retries on busy or no-answer, and an honest agent that never over-promises.</p></article>
+    </div>
+  </section>
+
+  <section class="block">
+    <h2 class="section-title">One agent. <span class="grad-text">Six moments that matter.</span></h2>
+    <p class="section-sub">Every order event gets its own script, outcomes and tone.</p>
+    <div class="events">
+      <span class="event-pill"><span></span>Order confirmation</span>
+      <span class="event-pill"><span></span>COD verification</span>
+      <span class="event-pill"><span></span>Payment successful</span>
+      <span class="event-pill"><span></span>Payment failed</span>
+      <span class="event-pill"><span></span>Order shipped</span>
+      <span class="event-pill"><span></span>Out for delivery</span>
+    </div>
+  </section>
+
+  <section class="block" id="how">
+    <h2 class="section-title">Live in <span class="grad-text">three steps.</span></h2>
+    <p class="section-sub">No code needed to start; a clean API when you want more.</p>
+    <div class="steps">
+      <article class="glass step"><h3>Create your store</h3><p>Sign up, name your agent and pick a voice. Hear it instantly with a free browser call.</p></article>
+      <article class="glass step"><h3>Connect your shop</h3><p>Add the webhook to Shopify or WooCommerce, or call our API from your own backend.</p></article>
+      <article class="glass step"><h3>Watch outcomes roll in</h3><p>Confirmations, changes and cancellations land in your dashboard and your webhook, in real time.</p></article>
+    </div>
+  </section>
+
+  <section class="glass final">
+    <h2>Give every order a <span class="grad-text">human touch.</span></h2>
+    <p>Start free with browser test calls. Connect real phone numbers when you're ready.</p>
+    <a class="btn primary lg" href="/dashboard#/signup">Create your store</a>
+  </section>
+</main>
+<footer>Dialyn · Real-time AI calling for e-commerce</footer>
+
+<script src="/assets/avatar.js"></script>
+<script>
+  // A scripted demo conversation drives the hero avatar and captions.
+  const avatar = new DialynAvatar(document.getElementById("avatar"));
+  const show = (id, on) => document.getElementById(id).classList.toggle("hide", !on);
+  const script = [
+    { state: "speaking", ms: 3200, agent: true, captions: { capAgent: true, capUser: false, capOutcome: false } },
+    { state: "listening", ms: 2600, user: true, captions: { capUser: true } },
+    { state: "thinking", ms: 1100 },
+    { state: "speaking", ms: 2200, agent: true },
+    { state: "happy", ms: 2800, captions: { capOutcome: true } },
+  ];
+  let step = 0, start = performance.now();
+  function tick(now) {
+    const s = script[step];
+    const t = (now - start) / 1000;
+    const voice = (Math.sin(t * 13) * 0.5 + 0.5) * (Math.sin(t * 3.1) * 0.35 + 0.65);
+    avatar.setState(s.state);
+    avatar.setLevels(s.agent ? 0.35 + voice * 0.55 : 0, s.user ? 0.3 + voice * 0.5 : 0);
+    if (now - start > s.ms) {
+      step = (step + 1) % script.length;
+      start = now;
+      for (const [id, on] of Object.entries(script[step].captions || {})) show(id, on);
+    }
+    requestAnimationFrame(tick);
+  }
+  requestAnimationFrame(tick);
+</script>
+</body>
+</html>
