@@ -27,7 +27,7 @@ pm2 save >/dev/null
 
 echo "==> Waiting for health check"
 for _ in $(seq 1 45); do
-  if curl -fsS "http://127.0.0.1:$PORT/health" >/dev/null; then
+  if curl -fsS "http://127.0.0.1:$PORT/health" >/dev/null 2>&1; then
     echo "Dialyn is up."
     exit 0
   fi
